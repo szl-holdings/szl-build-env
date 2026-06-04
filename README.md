@@ -63,7 +63,7 @@ make demo         # up -> verify -> seed request -> show cross-organ trace + DSS
 | kubectl | 1.30+ | https://kubernetes.io/docs/tasks/tools/ |
 | kind | 0.32.0 | `go install sigs.k8s.io/kind@v0.32.0` |
 | istioctl | 1.25.0 | `make istioctl` (downloads pinned binary into `./bin`) |
-| cosign | 2.x | https://docs.sigstore.dev/cosign/installation/ |
+| cosign | 2.x | https://docs.sigstore.dev/cosign/system_config/installation/ |
 | slsa-verifier | 2.x | https://github.com/slsa-framework/slsa-verifier#installation |
 | jq | any | `brew install jq` / `apt install jq` |
 
