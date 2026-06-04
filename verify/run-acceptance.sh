@@ -65,9 +65,11 @@ jpf=$!; sleep 2
 TRACE_JSON=$(curl -s "http://localhost:16686/api/traces/${TRACE_ID}" 2>/dev/null)
 kill "$jpf" 2>/dev/null || true
 
-if echo "$TRACE_JSON" | python3 - "$TRACE_ID" <<'PY'
-import sys, json
-raw = sys.stdin.read()
+if TRACE_JSON="$TRACE_JSON" python3 - "$TRACE_ID" <<'PY'
+import os, sys, json
+# Read the Jaeger payload from the environment: the heredoc occupies stdin,
+# so a piped `echo "$TRACE_JSON"` would be overridden (shellcheck SC2259).
+raw = os.environ.get("TRACE_JSON", "")
 try:
     data = json.loads(raw)
 except Exception:
