@@ -44,7 +44,7 @@ cluster so any SZL engineer can develop against the real fleet topology in
 **under 10 minutes**.
 
 > Doctrine v11 LOCKED `749/14/163` @ kernel commit `c7c0ba17`.
-> **NOT** Iron Bank · **NOT** FedRAMP · **NOT** CMMC L2+. SLSA **L1 honest + L2 attested**.
+> **NOT** Iron Bank · **NOT** FedRAMP · **NOT** CMMC L2+. SLSA **L1 honest** (no build-provenance attestation workflow — L2 not yet produced).
 > Mesh: **Istio ambient** (ztunnel + waypoint), *not* sidecar injection — by doctrine we are not Iron Bank.
 
 ---

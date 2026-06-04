@@ -1,6 +1,6 @@
 name: ci
 # PR CI: stand up the build env in kind and run the honest supply-chain gate.
-# Doctrine v11 749/14/163 @ c7c0ba17. NOT Iron Bank. SLSA L1 honest + L2 attested.
+# Doctrine v11 749/14/163 @ c7c0ba17. NOT Iron Bank. SLSA L1 honest (L2 not yet produced).
 on:
   pull_request:
     branches: [main]
