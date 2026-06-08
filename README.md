@@ -56,8 +56,12 @@ cluster so any SZL engineer can develop against the real fleet topology in
 | Cluster | kind, single node | node image `v1.32.2` |
 | Mesh | Istio **ambient** (ztunnel + waypoint) | `1.25.0` |
 | Telemetry | OpenTelemetry Collector → Jaeger | collector `0.135.0` |
-| Workloads | 5 organs: `a11oy`, `sentra`, `amaru`, `killinchu`, `rosie` | bundle `uds-v0.2.0` |
+| Workloads | 5 organs (deploy images): `a11oy` (gate), `sentra`=**CHAPAQ** egress immune-inspector, `amaru`=**YACHAY** reasoning cortex, `killinchu` (counter-UAS), `rosie`=operator console | bundle `uds-v0.2.0` |
 | Supply chain | `cosign verify` + `slsa-verifier` init gate | honest fail-closed |
+
+> **Naming note.** The image/Zarf coordinates `sentra`, `amaru`, `rosie` are **immutable infra
+> names** kept verbatim (renaming breaks pulls); their user-facing roles are **CHAPAQ** (egress
+> immune-inspector), **YACHAY** (read-only reasoning cortex), and the operator console.
 
 Organ images are pulled from the published bundle
 `oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0`
@@ -138,9 +142,9 @@ Short version:
   pull anonymously. `make verify` reports this honestly rather than skipping it.
 - **DSSE receipt chain is signature-light** until a real `COSIGN_KEY` /
   Sigstore identity is wired. The collector's DSSE processor is a documented stub.
-- **SLSA L1 is honest; L2 attestation is verified only where provenance exists.**
-  `slsa-verifier` runs against every organ but only enforces on images that ship
-  a provenance attestation.
+- **SLSA L1 is honest; L2 verified build-provenance is on the roadmap.**
+  `slsa-verifier` runs against every organ; it enforces only where a provenance
+  attestation is present, and the gate reports the absence honestly otherwise.
 
 No secrets are committed to this repo. See `HONEST_GAPS.md` § Secrets.
 
