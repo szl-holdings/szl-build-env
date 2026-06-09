@@ -56,12 +56,15 @@ cluster so any SZL engineer can develop against the real fleet topology in
 | Cluster | kind, single node | node image `v1.32.2` |
 | Mesh | Istio **ambient** (ztunnel + waypoint) | `1.25.0` |
 | Telemetry | OpenTelemetry Collector → Jaeger | collector `0.135.0` |
-| Workloads | 5 organs (deploy images): `a11oy` (gate), `sentra`=**CHAPAQ** egress immune-inspector, `amaru`=**YACHAY** reasoning cortex, `killinchu` (counter-UAS), `rosie`=operator console | bundle `uds-v0.2.0` |
+| Workloads | 5 organs by canonical role: **a11oy** (gate), **Policy** (egress immune-inspector, image `sentra`), **Provenance Anchor** (read-only reasoning cortex, image `amaru`), **killinchu** (counter-UAS), **Operator** (console, image `rosie`) | bundle `uds-v0.2.0` |
 | Supply chain | `cosign verify` + `slsa-verifier` init gate | honest fail-closed |
 
-> **Naming note.** The image/Zarf coordinates `sentra`, `amaru`, `rosie` are **immutable infra
-> names** kept verbatim (renaming breaks pulls); their user-facing roles are **CHAPAQ** (egress
-> immune-inspector), **YACHAY** (read-only reasoning cortex), and the operator console.
+> **Naming note (doctrine).** User-facing role names are the canonical ones: **Policy**,
+> **Provenance Anchor**, and **Operator** (plus the Quechua organ names `a11oy` and `killinchu`).
+> The lowercase code-formatted tokens `sentra`/`amaru`/`rosie` appearing in this repo are
+> **immutable infrastructure coordinates only** — OCI image names, Zarf package keys, and k8s
+> manifest filenames — kept verbatim because renaming them breaks image pulls. They are not
+> product/role labels; always refer to the organs by their canonical roles above.
 
 Organ images are pulled from the published bundle
 `oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0`
@@ -166,3 +169,4 @@ Apache-2.0. See [`LICENSE`](./LICENSE).
 Cite this work via [`CITATION.cff`](CITATION.cff). Math foundations: [szl-papers](https://github.com/szl-holdings/szl-papers) · [lutar-lean](https://github.com/szl-holdings/lutar-lean) (kernel `c7c0ba17`).
 
 <sub>Λ Conjecture 1 (not a theorem) · 749/14/163 v11 LOCKED (kernel `c7c0ba17`) · SLSA L1 honest · Section 889 = 5 vendors · [SZL Holdings](https://a11oy.net) · Apache-2.0 code · CC-BY-4.0 papers</sub>
+
