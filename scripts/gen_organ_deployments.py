@@ -12,6 +12,12 @@ import os
 
 ORGANS = ["a11oy", "sentra", "amaru", "killinchu", "rosie"]
 NS = "szl"
+# Pinned to the published + cosign-signed organ tag (matches manifests/organs/*.yaml
+# and STATUS.md: ghcr.io/szl-holdings/<organ>:uds-v0.2.0, keyless Fulcio/Rekor signed
+# with an SLSA provenance attestation). NOT `:latest` — a floating tag breaks the
+# SLSA L1+L2 / image-pin doctrine and is non-verifiable. Override only for local
+# dev:  ORGAN_IMAGE_TAG=latest python3 scripts/gen_organ_deployments.py
+IMAGE_TAG = os.environ.get("ORGAN_IMAGE_TAG", "uds-v0.2.0")
 OUT = os.path.join(os.path.dirname(__file__), "..", "deploy", "organs")
 
 TEMPLATE = """# SPDX-License-Identifier: Apache-2.0
@@ -41,7 +47,7 @@ spec:
     spec:
       containers:
         - name: {organ}
-          image: ghcr.io/szl-holdings/{organ}:latest
+          image: ghcr.io/szl-holdings/{organ}:{image_tag}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -78,9 +84,10 @@ def main() -> None:
     for organ in ORGANS:
         path = os.path.join(OUT, f"{organ}-deployment.yaml")
         with open(path, "w") as f:
-            f.write(TEMPLATE.format(organ=organ, ns=NS))
+            f.write(TEMPLATE.format(organ=organ, ns=NS, image_tag=IMAGE_TAG))
         print("wrote", path)
 
 
 if __name__ == "__main__":
     main()
+
