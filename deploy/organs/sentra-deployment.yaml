@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: sentra
-          image: ghcr.io/szl-holdings/sentra:latest
+          image: ghcr.io/szl-holdings/sentra:uds-v0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
