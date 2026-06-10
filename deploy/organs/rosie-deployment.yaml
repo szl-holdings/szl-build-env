@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: rosie
-          image: ghcr.io/szl-holdings/rosie:latest
+          image: ghcr.io/szl-holdings/rosie:uds-v0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
