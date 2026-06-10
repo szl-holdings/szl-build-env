@@ -8,8 +8,9 @@
 #   2. As the in-pod init container logic (mirrored inline in manifests/organs/*.yaml):
 #      the pod fails to start if cosign verify fails.
 #
-# Doctrine: SLSA L1 honest + L2 attested. We DO NOT fake an L2 attestation. If an
-# image has no provenance, we say so (L1 honest) rather than printing a green check.
+# Doctrine: SLSA L1 honest; L2 enforced only where provenance exists. We DO NOT
+# fake an L2 attestation. If an image has no provenance, we say so (L1 honest)
+# rather than printing a green check.
 set -uo pipefail
 
 NAMESPACE="${NAMESPACE:-szl}"
