@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: a11oy
-          image: ghcr.io/szl-holdings/a11oy:latest
+          image: ghcr.io/szl-holdings/a11oy:uds-v0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
