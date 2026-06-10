@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: killinchu
-          image: ghcr.io/szl-holdings/killinchu:latest
+          image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
