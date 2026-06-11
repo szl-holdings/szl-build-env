@@ -6,6 +6,7 @@ SHELL := /bin/bash
 # ---- pins (single source of truth) ------------------------------------------
 ISTIO_VERSION   ?= 1.25.0
 OTEL_VERSION    ?= 0.135.0
+GATEWAY_API_VERSION ?= v1.2.1
 KIND_CLUSTER    ?= szl-build-env
 BUNDLE          ?= oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0
 ORGAN_TAG       ?= uds-v0.2.0
@@ -41,6 +42,11 @@ cluster: ## Create the single-node kind cluster
 	@kubectl label namespace $(NAMESPACE) istio.io/dataplane-mode=ambient --overwrite
 
 mesh: istioctl cluster ## Install Istio ambient mesh (ztunnel + CNI), no sidecars
+	@echo ">> installing Gateway API CRDs ($(GATEWAY_API_VERSION))"
+	@kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/$(GATEWAY_API_VERSION)/standard-install.yaml
+	@kubectl wait --for=condition=Established --timeout=60s \
+	  crd/gateways.gateway.networking.k8s.io \
+	  crd/httproutes.gateway.networking.k8s.io
 	@ISTIO_VERSION=$(ISTIO_VERSION) ISTIOCTL=$(ISTIOCTL) NAMESPACE=$(NAMESPACE) \
 	  bash bootstrap/install-istio-ambient.sh
 	@kubectl apply -n $(NAMESPACE) -f manifests/mesh/waypoint.yaml
