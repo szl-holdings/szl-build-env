@@ -33,38 +33,17 @@ spec:
       initContainers:
         - name: cosign-gate
           image: ghcr.io/sigstore/cosign/cosign:v2.4.1
-          # The slsa-verifier binary is layered into a small helper image in CI;
-          # for local kind we shell out to cosign and treat missing slsa provenance
-          # as L1-honest (see verify/cosign-init.sh for the authoritative gate).
-          command: ["/bin/sh", "-c"]
+          # Keyless (Fulcio) verify. The cosign distroless image has no shell, so we
+          # run its `cosign` entrypoint directly via args (no /bin/sh). The pod fails
+          # to start unless the signature verifies against the organ's ghcr-build-push
+          # workflow identity. Authoritative host gate: verify/cosign-init.sh.
           args:
-            - |
-              set -euo pipefail
-              IMAGE="$ORGAN_IMAGE"
-              echo "[cosign-gate] verifying $IMAGE against szl-holdings cosign key + slsa provenance"
-              # 1) cosign verify (keyed). Public key is mounted at /keys/cosign.pub.
-              if ! cosign verify --key /keys/cosign.pub "$IMAGE" --output text > /tmp/cosign.out 2>&1; then
-                echo "::HONEST GATE FAILED:: cosign verify did NOT pass for $IMAGE" >&2
-                echo "------ cosign output ------" >&2; cat /tmp/cosign.out >&2
-                echo "Pod will NOT start. Fix the signature or image ref. See HONEST_GAPS.md." >&2
-                exit 1
-              fi
-              echo "[cosign-gate] cosign signature OK"
-              # 2) slsa-verifier (L2 attestation). Honest: enforce only if provenance exists.
-              if slsa-verifier verify-image "$IMAGE" \
-                   --source-uri "github.com/szl-holdings/${ORGAN_NAME}" \
-                   > /tmp/slsa.out 2>&1; then
-                echo "[cosign-gate] SLSA L2 provenance verified"
-              else
-                if grep -qi "no matching attestations\|no provenance" /tmp/slsa.out; then
-                  echo "[cosign-gate] SLSA: no provenance attestation present -> L1 honest (not failing)"
-                else
-                  echo "::HONEST GATE FAILED:: slsa-verifier rejected $IMAGE" >&2
-                  cat /tmp/slsa.out >&2
-                  exit 1
-                fi
-              fi
-              echo "[cosign-gate] PASS for $IMAGE"
+            - "verify"
+            - "--certificate-identity-regexp"
+            - '^https://github\.com/szl-holdings/killinchu/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)$'
+            - "--certificate-oidc-issuer"
+            - "https://token.actions.githubusercontent.com"
+            - "ghcr.io/szl-holdings/killinchu:uds-v0.2.0"
           env:
             - { name: ORGAN_NAME,  value: "killinchu" }
             - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/killinchu:uds-v0.2.0" }

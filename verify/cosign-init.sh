@@ -43,8 +43,13 @@ verify_one() {
     return 1
   fi
 
-  # 1) cosign verify (keyed against szl-holdings public key) — REQUIRED.
-  if cosign verify --key "$COSIGN_PUB" "$image" >/tmp/cosign.${organ}.out 2>&1; then
+  # 1) cosign verify (KEYLESS: Fulcio cert identity = organ's ghcr-build-push
+  #    workflow, OIDC issuer = GitHub Actions). The organ images are keyless-signed
+  #    (Fulcio cert in the .sig layer), so a keyed --key verify cannot validate them.
+  if cosign verify \
+       --certificate-identity-regexp "^https://github\.com/szl-holdings/${organ}/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)\$" \
+       --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+       "$image" >/tmp/cosign.${organ}.out 2>&1; then
     green "   [OK]   cosign signature verified"
   else
     if is_private "$organ"; then
