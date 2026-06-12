@@ -43,8 +43,13 @@ verify_one() {
     return 1
   fi
 
-  # 1) cosign verify (keyed against szl-holdings public key) — REQUIRED.
-  if cosign verify --key "$COSIGN_PUB" "$image" >/tmp/cosign.${organ}.out 2>&1; then
+  # 1) cosign verify (KEYLESS: Fulcio cert identity = organ's ghcr-build-push
+  #    workflow, OIDC issuer = GitHub Actions). The organ images are keyless-signed
+  #    (Fulcio cert in the .sig layer), so a keyed --key verify cannot validate them.
+  if cosign verify \
+       --certificate-identity-regexp "^https://github\.com/szl-holdings/${organ}/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)\$" \
+       --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+       "$image" >/tmp/cosign.${organ}.out 2>&1; then
     green "   [OK]   cosign signature verified"
   else
     if is_private "$organ"; then
@@ -57,11 +62,26 @@ verify_one() {
   fi
 
   # 2) slsa-verifier — L2 attested where present, L1 honest otherwise.
-  if slsa-verifier verify-image "$image" \
+  #    slsa-verifier refuses mutable tag references ("the image is mutable"); it
+  #    requires an immutable digest. Resolve the tag -> digest from cosign's own
+  #    triangulated signature ref (ghcr.io/...:sha256-<digest>.sig) and verify by digest.
+  local sref diref="$image" digest=""
+  sref="$(cosign triangulate "$image" 2>/dev/null || true)"
+  digest="$(printf '%s\n' "$sref" | sed -nE 's#.*[:-]sha256-([0-9a-f]{64})\.sig$#sha256:\1#p' | head -1)"
+  [ -n "$digest" ] && diref="${REGISTRY}/${organ}@${digest}"
+  if slsa-verifier verify-image "$diref" \
        --source-uri "github.com/szl-holdings/${organ}" >/tmp/slsa.${organ}.out 2>&1; then
     green "   [OK]   SLSA L2 provenance verified"
-  elif grep -qi "no matching\|no provenance\|no attestation" /tmp/slsa.${organ}.out; then
+  elif grep -qiE "no matching|no provenance|no attestation" /tmp/slsa.${organ}.out; then
     yellow "   [L1]   no SLSA provenance attestation — honest L1 (cosign sig still valid)"
+  elif grep -qiE "untrusted reusable workflow|untrusted builder|builderID provided: false" /tmp/slsa.${organ}.out; then
+    # Provenance EXISTS and its envelope parsed (slsa-verifier read builder.id),
+    # but the builder is the org's own ghcr-build-push workflow, which is not one of
+    # slsa-verifier's canonical/allowlisted SLSA generators. This is honest L1: the
+    # image's authenticity is already proven by the identity-pinned cosign keyless
+    # verify above (same workflow URL). We do NOT fake an L2 stamp.
+    yellow "   [L1]   SLSA provenance is self-attested by the org's ghcr-build-push workflow"
+    yellow "          (not a slsa-verifier-trusted canonical builder) — honest L1; cosign identity verified"
   else
     red "   [FAIL] slsa-verifier rejected ${image}"
     sed 's/^/      /' /tmp/slsa.${organ}.out
