@@ -62,7 +62,14 @@ verify_one() {
   fi
 
   # 2) slsa-verifier — L2 attested where present, L1 honest otherwise.
-  if slsa-verifier verify-image "$image" \
+  #    slsa-verifier refuses mutable tag references ("the image is mutable"); it
+  #    requires an immutable digest. Resolve the tag -> digest from cosign's own
+  #    triangulated signature ref (ghcr.io/...:sha256-<digest>.sig) and verify by digest.
+  local sref diref="$image" digest=""
+  sref="$(cosign triangulate "$image" 2>/dev/null || true)"
+  digest="$(printf '%s\n' "$sref" | sed -nE 's#.*[:-]sha256-([0-9a-f]{64})\.sig$#sha256:\1#p' | head -1)"
+  [ -n "$digest" ] && diref="${REGISTRY}/${organ}@${digest}"
+  if slsa-verifier verify-image "$diref" \
        --source-uri "github.com/szl-holdings/${organ}" >/tmp/slsa.${organ}.out 2>&1; then
     green "   [OK]   SLSA L2 provenance verified"
   elif grep -qi "no matching\|no provenance\|no attestation" /tmp/slsa.${organ}.out; then
