@@ -160,6 +160,16 @@ Apache-2.0. See [`LICENSE`](./LICENSE).
 
 </details>
 
+
+---
+
+### Cross-references
+
+- **First step for tower dry-run:** boot `szl-build-env` quickstart first, then proceed to [warhacker-demo](https://github.com/szl-holdings/warhacker-demo) for the full sovereign GPU tower deploy (`make tower-verify`).
+- **Production deployment:** [szl-uds-deployment](https://github.com/szl-holdings/szl-uds-deployment) is the live UDS reference deployment; `szl-build-env` is the laptop dev environment that precedes it.
+- **Formal proofs / kernel:** [lutar-lean](https://github.com/szl-holdings/lutar-lean) (kernel `c7c0ba17`)
+- **Command platform:** [a11oy](https://github.com/szl-holdings/a11oy) · **Counter-UAS / drones:** [killinchu](https://github.com/szl-holdings/killinchu)
+
 <!-- szl-doctrine-footer -->
 
 ---
