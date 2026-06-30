@@ -17,7 +17,7 @@ export PATH     := $(BIN):$(PATH)
 
 ORGANS := a11oy sentra amaru killinchu rosie
 
-.PHONY: help up verify trace down demo istioctl cluster mesh otel organs clean status cosign-key
+.PHONY: help up verify verify-dsse trace down demo istioctl cluster mesh otel organs clean status cosign-key
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -82,6 +82,11 @@ status: ## Show pod + mesh status
 
 verify: ## Run the honest cosign + slsa-verifier supply-chain gate for every organ
 	@ORGAN_TAG=$(ORGAN_TAG) NAMESPACE=$(NAMESPACE) bash verify/cosign-init.sh --all
+
+verify-dsse: ## Verify a DSSE receipt envelope for real (ECDSA-P256; honest verdicts)
+	@if [ -z "$(RECEIPT)" ]; then \
+	  echo "usage: make verify-dsse RECEIPT=path/to/receipt.json [PUBKEY=keys/cosign.pub]"; exit 2; fi
+	@python3 verify/dsse_verify.py "$(RECEIPT)" --pubkey "$(or $(PUBKEY),keys/cosign.pub)"
 
 trace: ## Send a request and dump the cross-organ traceparent trace tree
 	@NAMESPACE=$(NAMESPACE) bash verify/run-acceptance.sh

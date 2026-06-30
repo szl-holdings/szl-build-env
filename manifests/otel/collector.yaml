@@ -2,10 +2,13 @@
 # Organs (and the Istio ambient mesh) export OTLP here; the collector forwards to
 # Jaeger so one traceparent is visible end-to-end across all organs.
 #
-# DSSE-aware processor: STUB. See HONEST_GAPS.md § DSSE. The `transform` processor
-# below copies any `szl.dsse.receipt` / `szl.dsse.predecessor` span attributes onto
-# the span so the receipt chain is queryable in Jaeger. It does NOT yet verify the
-# DSSE signature envelope — that requires the COSIGN public key wired as a secret.
+# DSSE-aware processor: OTTL/YAML cannot run crypto in-path, so the `transform`
+# processor below only PROMOTES the `szl.dsse.receipt` / `szl.dsse.predecessor`
+# span attributes (making the receipt chain queryable in Jaeger) and labels them
+# `pending-sidecar-verify`. The AUTHORITATIVE ECDSA-P256-SHA256 verification is
+# performed by the real verify hook `verify/dsse_verify.py` (reuses szl-receipt's
+# primitive), which the pipeline calls with `keys/cosign.pub`. It emits honest
+# verdicts: verified | unsigned-honest | FAIL (loud). See HONEST_GAPS.md § DSSE.
 receivers:
   otlp:
     protocols:
@@ -17,15 +20,18 @@ receivers:
 processors:
   batch:
     timeout: 1s
-  # --- DSSE-aware processor (STUB) ------------------------------------------
+  # --- DSSE-aware processor -------------------------------------------------
   # Promotes DSSE receipt attributes so the receipt chain is visible per-span.
-  # TODO(honest): replace with a verifying processor once COSIGN_PUBLIC_KEY is mounted.
+  # OTTL cannot verify signatures in-path; the real ECDSA-P256 verification is
+  # done by verify/dsse_verify.py (reuses szl-receipt). This stage only flags the
+  # receipt as awaiting that authoritative verify, plus a hook pointer.
   transform/dsse:
     error_mode: ignore
     trace_statements:
       - context: span
         statements:
-          - set(attributes["szl.dsse.verified"], "stub-unverified") where attributes["szl.dsse.receipt"] != nil
+          - set(attributes["szl.dsse.verified"], "pending-sidecar-verify") where attributes["szl.dsse.receipt"] != nil
+          - set(attributes["szl.dsse.verify_hook"], "verify/dsse_verify.py") where attributes["szl.dsse.receipt"] != nil
           - set(attributes["szl.doctrine"], "v11-749-14-163-c7c0ba17")
   resource:
     attributes:

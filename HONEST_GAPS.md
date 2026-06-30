@@ -23,17 +23,23 @@
   `a11oy`, `sentra`, `amaru` had a separate org-level GHCR push block; if their
   `uds-v0.2.0` tags are not yet public they will surface the same `KNOWN-GAP`.
 
-## 2. DSSE receipt chain is signature-light (collector processor is a STUB)
+## 2. DSSE receipt verification is REAL (was a collector stub)
 
-- `manifests/otel/collector.yaml` includes a `transform/dsse` processor that
-  **promotes** `szl.dsse.receipt` span attributes so the chain is queryable in
-  Jaeger. It sets `szl.dsse.verified = "stub-unverified"`.
-- It does **NOT** verify the DSSE signature envelope yet. That requires the
-  `COSIGN_PUBLIC_KEY` (or Sigstore identity) wired as config.
-- **Why not done:** verifying DSSE envelopes in-collector needs a custom/verifying
-  processor and the key material plumbed without committing secrets. Tracked as
-  the first follow-up.
-- Organs must also actually emit `szl.dsse.receipt` attributes for the chain to
+- **Resolved.** DSSE/ECDSA-P256-SHA256 verification is now performed for real by
+  `verify/dsse_verify.py` (run via `make verify-dsse`). It reuses the SAME
+  primitive as `szl-receipt` / `vsp-otel` (canonical_json + DSSEv1 PAE +
+  ECDSA-P256-SHA256): it prefers the installed `szl_receipt` package
+  (`verify_receipt`) and falls back to a byte-for-byte identical inline
+  implementation, so it never silently degrades.
+- Honest verdicts (never a silent pass): good signature → `verified`; bad/tampered
+  signature → `FAIL` (loud, non-zero exit); no/empty signature → `unsigned-honest`
+  (explicitly NOT verified). Proven by `verify/test_dsse_verify.py`.
+- **Remaining honest limit:** OTTL/YAML cannot run crypto in-path, so the
+  `transform/dsse` processor in `manifests/otel/collector.yaml` only *promotes*
+  the `szl.dsse.receipt` attribute and labels it `pending-sidecar-verify` with a
+  `szl.dsse.verify_hook` pointer; the authoritative verdict comes from the
+  sidecar above, keyed by `keys/cosign.pub` (public key — no secret committed).
+- Organs must still actually emit `szl.dsse.receipt` attributes for the chain to
   populate; the demo prints whatever is emitted and says so if empty.
 
 ## 3. SLSA: L1 honest, L2 only where provenance exists

@@ -15,6 +15,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  dsse-verify:
+    # Fast, hermetic unit gate for the REAL DSSE verifier (verify/dsse_verify.py).
+    # No cluster needed; proves verified / unsigned-honest / FAIL verdicts.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install verifier deps (szl-receipt + pytest)
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest "git+https://github.com/szl-holdings/szl-receipt.git@v0.1.0"
+      - name: Run DSSE verifier tests
+        run: pytest -q verify/test_dsse_verify.py
+
   build-env:
     runs-on: ubuntu-latest
     timeout-minutes: 30
