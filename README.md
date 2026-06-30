@@ -125,8 +125,9 @@ bootstrap/install-istio-ambient.sh Istio ambient installer (pinned 1.25.0)
 bootstrap/install-otel-collector.sh OTLP collector + Jaeger exporter
 manifests/organs/*.yaml            5 organ Deployments (cosign-gated initContainer)
 manifests/mesh/waypoint.yaml       ambient waypoint for inter-organ L7 routing
-manifests/otel/collector.yaml      OTLP collector config (DSSE-aware processor stub)
+manifests/otel/collector.yaml      OTLP collector config (DSSE attr-promoting processor)
 verify/cosign-init.sh              the fail-closed supply-chain gate
+verify/dsse_verify.py              REAL ECDSA-P256 DSSE receipt verifier (make verify-dsse)
 verify/run-acceptance.sh           /healthz + end-to-end traceparent propagation check
 demo/greene-demo.sh                June 9 scripted demo
 .github/workflows/ci.yml           PR CI: make up + make verify in kind
@@ -143,8 +144,11 @@ Short version:
 - **`killinchu` image is private.** It will `ImagePullBackOff` until the founder
   flips the GHCR package to public (or you add a pull secret). The other 4 organs
   pull anonymously. `make verify` reports this honestly rather than skipping it.
-- **DSSE receipt chain is signature-light** until a real `COSIGN_KEY` /
-  Sigstore identity is wired. The collector's DSSE processor is a documented stub.
+- **DSSE receipt verification is REAL** — `verify/dsse_verify.py`
+  (`make verify-dsse`) verifies ECDSA-P256-SHA256 envelopes against
+  `keys/cosign.pub`, emitting honest verdicts (`verified` / `unsigned-honest` /
+  `FAIL`). The in-collector OTTL processor only promotes the attribute and points
+  at this verify hook (OTTL cannot run crypto in-path).
 - **SLSA L1 is honest; L2 verified build-provenance is on the roadmap.**
   `slsa-verifier` runs against every organ; it enforces only where a provenance
   attestation is present, and the gate reports the absence honestly otherwise.
