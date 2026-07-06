@@ -5,11 +5,11 @@
 #   1. Bring up the full stack on kind (5 organs + Istio ambient + OTel).
 #   2. Run the honest cosign + SLSA gate — show NOTHING is faked.
 #   3. Send one test request and watch a single traceparent propagate across organs.
-#   4. Show the DSSE receipt chain (stub-honest until COSIGN secret is wired).
+#   4. Show the DSSE receipt chain (REAL ECDSA-P256 verification; honest verdicts).
 #
 # Designed to be paused between beats. Set DEMO_AUTO=1 to run start-to-finish.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 NAMESPACE="${NAMESPACE:-szl}"
 DEMO_AUTO="${DEMO_AUTO:-0}"
@@ -41,8 +41,9 @@ pause
 
 bold "Beat 4/4 — DSSE receipt chain"
 echo "The OTel collector promotes szl.dsse.receipt attributes onto each span so the"
-echo "receipt chain is queryable. NOTE (honest): signatures are stub-unverified until"
-echo "a real COSIGN_KEY / Sigstore identity is wired — see HONEST_GAPS.md § DSSE."
+echo "receipt chain is queryable. Verification is REAL: verify/dsse_verify.py"
+echo "(make verify-dsse) checks ECDSA-P256-SHA256 envelopes against keys/cosign.pub,"
+echo "emitting honest verdicts (verified / unsigned-honest / FAIL) — see HONEST_GAPS.md § DSSE."
 echo ""
 echo "Receipt chain spans for the demo trace:"
 kubectl -n "$NAMESPACE" logs deploy/opentelemetry-collector 2>/dev/null \

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # © 2026 Lutar, Stephen P. — SZL Holdings · ORCID 0009-0001-0110-4173
-# Doctrine v11 LOCKED 749/14/163 · Λ Conjecture 1 · SLSA L1+L2
+# Doctrine v11 LOCKED 749/14/163 · Λ Conjecture 1 · SLSA L1 honest
 """Generate per-organ Deployment manifests that mount the cosign private key
 as the SZL_COSIGN_PRIVATE_KEY_PEM env var (optional: true — honest fallback).
 
@@ -13,16 +13,16 @@ import os
 ORGANS = ["a11oy", "sentra", "amaru", "killinchu", "rosie"]
 NS = "szl"
 # Pinned to the published + cosign-signed organ tag (matches manifests/organs/*.yaml
-# and STATUS.md: ghcr.io/szl-holdings/<organ>:uds-v0.2.0, keyless Fulcio/Rekor signed
-# with an SLSA provenance attestation). NOT `:latest` — a floating tag breaks the
-# SLSA L1+L2 / image-pin doctrine and is non-verifiable. Override only for local
+# and STATUS.md: ghcr.io/szl-holdings/<organ>:uds-v0.2.0, keyless Fulcio/Rekor signed).
+# NOT `:latest` — a floating tag breaks the
+# SLSA L1 (honest) / image-pin doctrine and is non-verifiable. Override only for local
 # dev:  ORGAN_IMAGE_TAG=latest python3 scripts/gen_organ_deployments.py
 IMAGE_TAG = os.environ.get("ORGAN_IMAGE_TAG", "uds-v0.2.0")
 OUT = os.path.join(os.path.dirname(__file__), "..", "deploy", "organs")
 
 TEMPLATE = """# SPDX-License-Identifier: Apache-2.0
 # © 2026 Lutar, Stephen P. — SZL Holdings · ORCID 0009-0001-0110-4173
-# Doctrine v11 LOCKED 749/14/163 · Lambda Conjecture 1 · SLSA L1+L2
+# Doctrine v11 LOCKED 749/14/163 · Lambda Conjecture 1 · SLSA L1 honest
 # {organ} organ Deployment — cosign private key mounted as an ENV VAR (not a file).
 # The secret is optional: when absent the organ emits honest UNSIGNED receipts.
 apiVersion: apps/v1
