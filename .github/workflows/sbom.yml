@@ -1,15 +1,22 @@
 # Copyright 2026 SZL Holdings — SPDX-License-Identifier: Apache-2.0
 name: SBOM
+
+# Org reusable SBOM (CycloneDX + SPDX) gate (SHA-pinned caller). Wave G CI parity.
 on:
   push:
-    branches: [main, ci/fix-sbom-permissions]
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
+
+# The reusable workflow's trivy-fs job uploads a SARIF, which requires
+# security-events: write. A reusable workflow cannot be granted more permission
+# than its caller, so the caller MUST grant these or the run startup_failures.
 permissions:
   contents: write
   security-events: write
   actions: read
+
 jobs:
   sbom:
     uses: szl-holdings/.github/.github/workflows/reusable-sbom.yml@ebd2128c691b850c84438b671fbb512945933776
