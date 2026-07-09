@@ -17,7 +17,7 @@ Engineers and design partners can stand up the entire governed-AI stack on a lap
 
 ## ▶️ Live demo
 
-_Internal / private repository — no public demo surface. See [docs.szlholdings.com](https://szl-holdings.github.io/docs-site) for the public product walkthrough._
+This is a **public** repository. It is a one-command local environment, so there is no hosted demo by design — stand it up on your own machine via the Quick start below, or see [docs.szlholdings.com](https://szl-holdings.github.io/docs-site) for the public product walkthrough.
 
 ## ⚡ Quick start (30 seconds)
 
