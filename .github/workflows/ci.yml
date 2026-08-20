@@ -8,7 +8,7 @@ on:
 
 permissions:
   contents: read
-  packages: read   # read-only: pull public organ images. No write, no secret needed.
+  packages: read   # read-only: authenticate the private killinchu pull in CI.
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -22,21 +22,35 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install verifier deps (szl-receipt + pytest)
         run: |
           python -m pip install --upgrade pip
-          pip install pytest "git+https://github.com/szl-holdings/szl-receipt.git@v0.1.0"
+          pip install pytest PyYAML "git+https://github.com/szl-holdings/szl-receipt.git@v0.1.0"
       - name: Run DSSE verifier tests
-        run: pytest -q verify/test_dsse_verify.py verify/test_run_acceptance_contract.py
+        run: >-
+          pytest -q
+          verify/test_dsse_verify.py
+          verify/test_run_acceptance_contract.py
+          verify/test_registry_auth_contract.py
 
   build-env:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reject forked private-image acceptance
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          echo "::error::Private-image acceptance requires a branch in this repository and fails closed for forks."
+          exit 1
 
       - name: Install kind
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
@@ -63,14 +77,35 @@ jobs:
       - name: Load cosign public key into the cluster
         run: make cosign-key
 
+      - name: Configure least-privilege killinchu registry auth
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USERNAME: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | \
+            python3 bootstrap/configure-ghcr-pull-auth.py \
+              --username "$GHCR_USERNAME" \
+              --docker-config-dir "${RUNNER_TEMP}/szl-ghcr-auth"
+
       - name: make up (kind + istio ambient + otel + organs)
         run: make up
-        # killinchu may ImagePullBackOff (private) — make up tolerates it (|| true on rollout).
 
       - name: make verify (honest cosign + SLSA gate)
-        # Fails the PR only on a REAL verification failure. KNOWN-GAP (killinchu
-        # private) exits 0 by design — nothing is faked, see verify/cosign-init.sh.
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/szl-ghcr-auth
+          REQUIRE_PRIVATE_ORGANS: "1"
         run: make verify
+
+      - name: Remove host-side registry auth
+        if: ${{ always() }}
+        run: |
+          auth_config="${RUNNER_TEMP}/szl-ghcr-auth/config.json"
+          if [[ -f "$auth_config" ]]; then
+            chmod u+w "$auth_config"
+            rm -- "$auth_config"
+          fi
 
       - name: Run fail-closed five-organ acceptance
         env:

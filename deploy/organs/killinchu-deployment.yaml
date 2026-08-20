@@ -23,6 +23,10 @@ spec:
         app.kubernetes.io/name: killinchu
         app.kubernetes.io/part-of: szl-organs
     spec:
+      # Runtime registry auth is restricted to the one private-image pod.
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: szl-ghcr-pull
       containers:
         - name: killinchu
           image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0

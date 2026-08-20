@@ -26,6 +26,12 @@ present, the pod still starts and the organ emits **UNSIGNED** DSSE receipts
 moment the secret exists, every organ's `szl_dsse` signer flips to **real
 ECDSA-P256-SHA256** signatures.
 
+The separate `szl-ghcr-pull` Secret authenticates image pulls for the private
+killinchu image. It is not a signing key and is referenced by no public-image
+organ. Create it after the `szl` namespace exists by piping a `read:packages`
+token to `bootstrap/configure-ghcr-pull-auth.py`; never place that token on the
+command line. See the root README's authenticated quickstart.
+
 ## Create the secret (founder, once)
 
 ```bash

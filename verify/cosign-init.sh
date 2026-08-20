@@ -18,9 +18,13 @@ ORGAN_TAG="${ORGAN_TAG:-uds-v0.2.0}"
 REGISTRY="ghcr.io/szl-holdings"
 COSIGN_PUB="${COSIGN_PUB:-$(dirname "$0")/../keys/cosign.pub}"
 ORGANS=(a11oy sentra amaru killinchu rosie)
-# killinchu is private until the founder flips GHCR. Treat its pull failure as a
-# KNOWN GAP, not a hard gate failure, so the rest of the matrix is still useful.
+# killinchu is private. For an unauthenticated local run, keep its access failure
+# as a KNOWN GAP so the rest of the matrix remains useful; authenticated CI sets
+# REQUIRE_PRIVATE_ORGANS=1 and turns the same condition into a hard failure.
 PRIVATE_ORGANS=("killinchu")
+# CI sets this after installing runtime auth. In that mode, an inaccessible
+# private image is a hard credential failure rather than a documented local gap.
+REQUIRE_PRIVATE_ORGANS="${REQUIRE_PRIVATE_ORGANS:-0}"
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -35,11 +39,11 @@ verify_one() {
 
   # 0) can we even pull/reference it?
   if ! cosign triangulate "$image" >/dev/null 2>&1; then
-    if is_private "$organ"; then
-      yellow "   [SKIP-KNOWN-GAP] ${organ} image not accessible (private GHCR). Founder must flip to public."
+    if is_private "$organ" && [ "$REQUIRE_PRIVATE_ORGANS" != "1" ]; then
+      yellow "   [SKIP-KNOWN-GAP] ${organ} image not accessible; configure read-only GHCR auth."
       return 2
     fi
-    red "   [FAIL] cannot reference ${image} (not pushed? not public?)"
+    red "   [FAIL] cannot reference ${image} (missing image or registry authorization)"
     return 1
   fi
 
@@ -52,8 +56,8 @@ verify_one() {
        "$image" >/tmp/cosign.${organ}.out 2>&1; then
     green "   [OK]   cosign signature verified"
   else
-    if is_private "$organ"; then
-      yellow "   [SKIP-KNOWN-GAP] cosign verify blocked (private image). Founder flip pending."
+    if is_private "$organ" && [ "$REQUIRE_PRIVATE_ORGANS" != "1" ]; then
+      yellow "   [SKIP-KNOWN-GAP] cosign verify blocked; configure read-only GHCR auth."
       return 2
     fi
     red "   [FAIL] cosign verify FAILED — see /tmp/cosign.${organ}.out"
@@ -117,7 +121,7 @@ main() {
   fi
   if [ "$gap" -gt 0 ]; then
     yellow "RESULT: all reachable organs PASS. $gap organ(s) are KNOWN GAPS (private image)."
-    yellow "        This is honest-green: nothing faked, killinchu awaits founder GHCR flip."
+    yellow "        This is honest-green: nothing faked; configure killinchu read-only GHCR auth for 5/5."
     exit 0
   fi
   green "RESULT: 5/5 organs PASS cosign + SLSA gate. Build env supply chain is honest."
