@@ -453,27 +453,31 @@ PY
 deployment_is_ready() {
   local organ="$1"
   local deadline_ms="$2"
-  local remaining_ms raw generation observed desired updated available unavailable
+  local remaining_ms raw generation observed desired replicas updated ready available unavailable
   remaining_ms="$(remaining_milliseconds "$deadline_ms")"
   (( remaining_ms > 0 )) || return 2
   if ! raw="$(kubectl --request-timeout="${remaining_ms}ms" -n "$NAMESPACE" get deployment "$organ" \
-    -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.updatedReplicas}{"|"}{.status.availableReplicas}{"|"}{.status.unavailableReplicas}')"; then
+    -o jsonpath='{.metadata.generation}{"|"}{.status.observedGeneration}{"|"}{.spec.replicas}{"|"}{.status.replicas}{"|"}{.status.updatedReplicas}{"|"}{.status.readyReplicas}{"|"}{.status.availableReplicas}{"|"}{.status.unavailableReplicas}')"; then
     if (( $(remaining_milliseconds "$deadline_ms") == 0 )); then
       return 2
     fi
     return 1
   fi
-  IFS='|' read -r generation observed desired updated available unavailable <<< "$raw"
+  IFS='|' read -r generation observed desired replicas updated ready available unavailable <<< "$raw"
+  replicas="${replicas:-0}"
   updated="${updated:-0}"
+  ready="${ready:-0}"
   available="${available:-0}"
   unavailable="${unavailable:-0}"
   [[ "$generation" =~ ^[0-9]+$ ]] || return 1
   [[ "$observed" =~ ^[0-9]+$ ]] || return 1
   [[ "$desired" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$replicas" =~ ^[0-9]+$ ]] || return 1
   [[ "$updated" =~ ^[0-9]+$ ]] || return 1
+  [[ "$ready" =~ ^[0-9]+$ ]] || return 1
   [[ "$available" =~ ^[0-9]+$ ]] || return 1
   [[ "$unavailable" =~ ^[0-9]+$ ]] || return 1
-  (( observed >= generation && updated >= desired && available >= desired && unavailable == 0 ))
+  (( observed >= generation && replicas == desired && updated == desired && ready == desired && available == desired && unavailable == 0 ))
 }
 
 image_pull_failure() {

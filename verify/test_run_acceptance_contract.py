@@ -315,6 +315,17 @@ def test_script_avoids_bash4_and_gnu_coreutils_only_primitives():
     assert '"$git_parents" != "${base_sha} ${candidate_sha}"' in source
 
 
+def test_deployment_readiness_rejects_surge_and_stale_replicas():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert ".status.replicas" in source
+    assert ".status.readyReplicas" in source
+    assert "replicas == desired" in source
+    assert "updated == desired" in source
+    assert "ready == desired" in source
+    assert "available == desired" in source
+
+
 def test_script_parses_as_bash():
     bash = _usable_bash()
     if bash is None:
