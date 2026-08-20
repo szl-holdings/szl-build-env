@@ -30,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest "git+https://github.com/szl-holdings/szl-receipt.git@v0.1.0"
       - name: Run DSSE verifier tests
-        run: pytest -q verify/test_dsse_verify.py
+        run: pytest -q verify/test_dsse_verify.py verify/test_run_acceptance_contract.py
 
   build-env:
     runs-on: ubuntu-latest

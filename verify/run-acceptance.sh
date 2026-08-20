@@ -9,23 +9,32 @@ PORT_FORWARD_TIMEOUT_SECONDS="${PORT_FORWARD_TIMEOUT_SECONDS:-20}"
 HTTP_TIMEOUT_SECONDS="${HTTP_TIMEOUT_SECONDS:-15}"
 TRACE_TIMEOUT_SECONDS="${TRACE_TIMEOUT_SECONDS:-90}"
 TRACE_POLL_SECONDS="${TRACE_POLL_SECONDS:-4}"
-EVIDENCE_PATH="${ACCEPTANCE_EVIDENCE_PATH:-verify/acceptance-evidence.json}"
+EVIDENCE_PATH="${ACCEPTANCE_EVIDENCE_PATH:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/szl-build-env-acceptance.json}"
 
 ORGANS=(a11oy sentra amaru killinchu rosie)
 EXPECTED_SERVICES="a11oy,sentra,amaru,killinchu,rosie"
-STATE_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/szl-acceptance.XXXXXX")"
+STATE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/szl-acceptance.XXXXXX")"
 TRACE_RESPONSE_PATH="${STATE_DIR}/trace-response.json"
 TRACE_OBSERVATION_PATH="${STATE_DIR}/trace-observation.json"
 
-declare -A deployment_exists=()
-declare -A deployment_ready=()
-declare -A health_http_code=()
-declare -A service_result=()
-declare -A service_failure=()
+deployment_exists=(false false false false false)
+deployment_ready=(false false false false false)
+health_http_code=("" "" "" "" "")
+service_result=(FAIL FAIL FAIL FAIL FAIL)
+service_failure=(not_evaluated not_evaluated not_evaluated not_evaluated not_evaluated)
 
 github_sha="${GITHUB_SHA:-}"
 github_run_id="${GITHUB_RUN_ID:-}"
 github_run_attempt="${GITHUB_RUN_ATTEMPT:-}"
+execution_context=""
+local_run_nonce=""
+run_identity=""
+event_name=""
+source_ref=""
+source_repository=""
+head_repository=""
+base_sha=""
+candidate_sha=""
 overall_result="FAIL"
 overall_failure="initialization_failed"
 gate_failed=0
@@ -36,14 +45,6 @@ trace_result="FAIL"
 trace_failure="not_run"
 PF_PID=""
 
-for organ in "${ORGANS[@]}"; do
-  deployment_exists["$organ"]="false"
-  deployment_ready["$organ"]="false"
-  health_http_code["$organ"]=""
-  service_result["$organ"]="FAIL"
-  service_failure["$organ"]="not_evaluated"
-done
-
 record_failure() {
   gate_failed=1
   if [[ -z "$overall_failure" ]]; then
@@ -52,7 +53,11 @@ record_failure() {
 }
 
 epoch_milliseconds() {
-  date +%s%3N
+  python3 -c 'import time; print(time.time_ns() // 1_000_000)'
+}
+
+sha256_hex() {
+  python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
 }
 
 remaining_milliseconds() {
@@ -89,17 +94,18 @@ cleanup_port_forward() {
 
 emit_evidence() {
   local service_state_path="${STATE_DIR}/services.tsv"
-  local organ
+  local organ organ_index
 
   : > "$service_state_path"
-  for organ in "${ORGANS[@]}"; do
+  for organ_index in "${!ORGANS[@]}"; do
+    organ="${ORGANS[$organ_index]}"
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$organ" \
-      "${deployment_exists[$organ]}" \
-      "${deployment_ready[$organ]}" \
-      "${health_http_code[$organ]}" \
-      "${service_result[$organ]}" \
-      "${service_failure[$organ]}" >> "$service_state_path"
+      "${deployment_exists[$organ_index]}" \
+      "${deployment_ready[$organ_index]}" \
+      "${health_http_code[$organ_index]}" \
+      "${service_result[$organ_index]}" \
+      "${service_failure[$organ_index]}" >> "$service_state_path"
   done
 
   EVIDENCE_PATH="$EVIDENCE_PATH" \
@@ -110,6 +116,14 @@ emit_evidence() {
   EVIDENCE_GITHUB_SHA="$github_sha" \
   EVIDENCE_GITHUB_RUN_ID="$github_run_id" \
   EVIDENCE_GITHUB_RUN_ATTEMPT="$github_run_attempt" \
+  EVIDENCE_EXECUTION_CONTEXT="$execution_context" \
+  EVIDENCE_LOCAL_RUN_NONCE="$local_run_nonce" \
+  EVIDENCE_EVENT_NAME="$event_name" \
+  EVIDENCE_SOURCE_REF="$source_ref" \
+  EVIDENCE_SOURCE_REPOSITORY="$source_repository" \
+  EVIDENCE_HEAD_REPOSITORY="$head_repository" \
+  EVIDENCE_BASE_SHA="$base_sha" \
+  EVIDENCE_CANDIDATE_SHA="$candidate_sha" \
   EVIDENCE_RESULT="$overall_result" \
   EVIDENCE_FAILURE="$overall_failure" \
   EVIDENCE_TRACE_ID="$trace_id" \
@@ -168,6 +182,16 @@ if observation_path.is_file():
         trace_observation["state"] = "malformed"
 
 evidence = {
+    "execution": {
+        "base_sha": os.environ["EVIDENCE_BASE_SHA"],
+        "candidate_sha": os.environ["EVIDENCE_CANDIDATE_SHA"],
+        "context": os.environ["EVIDENCE_EXECUTION_CONTEXT"],
+        "event_name": os.environ["EVIDENCE_EVENT_NAME"],
+        "head_repository": os.environ["EVIDENCE_HEAD_REPOSITORY"],
+        "local_run_nonce": os.environ["EVIDENCE_LOCAL_RUN_NONCE"] or None,
+        "ref": os.environ["EVIDENCE_SOURCE_REF"],
+        "repository": os.environ["EVIDENCE_SOURCE_REPOSITORY"],
+    },
     "failure": os.environ["EVIDENCE_FAILURE"] or None,
     "github_run_attempt": optional_positive_integer(
         os.environ["EVIDENCE_GITHUB_RUN_ATTEMPT"]
@@ -241,6 +265,191 @@ require_positive_integer() {
   fi
 }
 
+derive_execution_identity() {
+  local checkout_sha event_identity event_path git_parents head_ref pr_number script_dir source_repo status_output
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    execution_context="github-actions"
+    if [[ ! "$github_run_id" =~ ^[1-9][0-9]*$ ]]; then
+      overall_failure="invalid_github_run_id"
+      echo "[FAIL] GITHUB_RUN_ID must identify this workflow run" >&2
+      exit 1
+    fi
+    if [[ ! "$github_run_attempt" =~ ^[1-9][0-9]*$ ]]; then
+      overall_failure="invalid_github_run_attempt"
+      echo "[FAIL] GITHUB_RUN_ATTEMPT must identify this workflow attempt" >&2
+      exit 1
+    fi
+    run_identity="${github_run_id}:${github_run_attempt}"
+    source_repository="${GITHUB_REPOSITORY:-}"
+    event_name="${GITHUB_EVENT_NAME:-}"
+    source_ref="${GITHUB_REF:-}"
+    if [[ "$source_repository" != "szl-holdings/szl-build-env" ]]; then
+      overall_failure="invalid_github_repository"
+      echo "[FAIL] GITHUB_REPOSITORY must be szl-holdings/szl-build-env" >&2
+      exit 1
+    fi
+    checkout_sha="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+    if [[ "$checkout_sha" != "$github_sha" ]]; then
+      overall_failure="github_checkout_sha_mismatch"
+      echo "[FAIL] checked-out commit does not equal GITHUB_SHA" >&2
+      exit 1
+    fi
+
+    case "$event_name" in
+      pull_request)
+        event_path="${GITHUB_EVENT_PATH:-}"
+        if [[ ! -f "$event_path" ]]; then
+          overall_failure="missing_github_event_payload"
+          echo "[FAIL] pull_request evidence requires GITHUB_EVENT_PATH" >&2
+          exit 1
+        fi
+        if ! event_identity="$(python3 - "$event_path" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError):
+    raise SystemExit("invalid pull_request event payload")
+
+pull_request = payload.get("pull_request")
+if not isinstance(pull_request, dict) or pull_request.get("state") != "open":
+    raise SystemExit("pull request must be open")
+if payload.get("action") not in {"opened", "reopened", "synchronize"}:
+    raise SystemExit("unsupported pull_request action")
+number = payload.get("number")
+base = pull_request.get("base")
+head = pull_request.get("head")
+if not isinstance(number, int) or number <= 0:
+    raise SystemExit("invalid pull request number")
+if not isinstance(base, dict) or not isinstance(head, dict):
+    raise SystemExit("missing pull request base or head")
+base_repo = base.get("repo")
+head_repo = head.get("repo")
+if not isinstance(base_repo, dict) or base_repo.get("full_name") != "szl-holdings/szl-build-env":
+    raise SystemExit("invalid pull request base repository")
+if base.get("ref") != "main":
+    raise SystemExit("invalid pull request base ref")
+if not isinstance(head_repo, dict) or not isinstance(head_repo.get("full_name"), str):
+    raise SystemExit("invalid pull request head repository")
+base_sha = base.get("sha")
+head_sha = head.get("sha")
+head_ref = head.get("ref")
+if not isinstance(base_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", base_sha):
+    raise SystemExit("invalid pull request base sha")
+if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+    raise SystemExit("invalid pull request head sha")
+if not isinstance(head_ref, str) or not head_ref:
+    raise SystemExit("invalid pull request head ref")
+print("|".join((str(number), base_sha, head_sha, head_repo["full_name"], head_ref)))
+PY
+        )"; then
+          overall_failure="invalid_github_event_payload"
+          echo "[FAIL] pull_request event payload failed structural validation" >&2
+          exit 1
+        fi
+        IFS='|' read -r pr_number base_sha candidate_sha head_repository head_ref <<< "$event_identity"
+        if [[ "$source_ref" != "refs/pull/${pr_number}/merge" || "${GITHUB_BASE_REF:-}" != "main" || "${GITHUB_HEAD_REF:-}" != "$head_ref" ]]; then
+          overall_failure="github_pull_request_ref_mismatch"
+          echo "[FAIL] GitHub pull request refs do not match the event payload" >&2
+          exit 1
+        fi
+        if ! git_parents="$(python3 - <<'PY'
+import re
+import subprocess
+
+
+raw_commit = subprocess.run(
+    ["git", "cat-file", "commit", "HEAD"],
+    check=True,
+    stdout=subprocess.PIPE,
+).stdout
+headers, separator, _message = raw_commit.partition(b"\n\n")
+if not separator:
+    raise SystemExit("commit object has no header/message boundary")
+
+parents = []
+for line in headers.splitlines():
+    if not line.startswith(b"parent "):
+        continue
+    parent = line[len(b"parent ") :]
+    if not re.fullmatch(rb"[0-9a-f]{40}", parent):
+        raise SystemExit("commit object has a malformed parent header")
+    parents.append(parent.decode("ascii"))
+
+if len(parents) != 2:
+    raise SystemExit("pull_request checkout must be an exact two-parent merge commit")
+print(" ".join(parents))
+PY
+        )"; then
+          overall_failure="invalid_github_merge_commit"
+          echo "[FAIL] checked-out pull request commit object is not a valid two-parent merge" >&2
+          exit 1
+        fi
+        if [[ "$git_parents" != "${base_sha} ${candidate_sha}" ]]; then
+          overall_failure="github_pull_request_parent_mismatch"
+          echo "[FAIL] checked-out merge commit parents do not bind the exact base and candidate" >&2
+          exit 1
+        fi
+        ;;
+      workflow_dispatch)
+        if [[ "$source_ref" != "refs/heads/main" || -n "${GITHUB_BASE_REF:-}" || -n "${GITHUB_HEAD_REF:-}" ]]; then
+          overall_failure="invalid_workflow_dispatch_ref"
+          echo "[FAIL] workflow_dispatch acceptance is restricted to protected main" >&2
+          exit 1
+        fi
+        base_sha="$github_sha"
+        candidate_sha="$github_sha"
+        head_repository="$source_repository"
+        ;;
+      *)
+        overall_failure="invalid_github_event_name"
+        echo "[FAIL] acceptance supports only pull_request and workflow_dispatch events" >&2
+        exit 1
+        ;;
+    esac
+  else
+    execution_context="local"
+    script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    source_repo="${script_dir}/.."
+    github_sha="$(git -C "$source_repo" rev-parse --verify HEAD 2>/dev/null || true)"
+    github_run_id=""
+    github_run_attempt=""
+    event_name="local"
+    source_repository="local"
+    head_repository="local"
+    source_ref="$(git -C "$source_repo" symbolic-ref --quiet --short HEAD 2>/dev/null || printf 'detached')"
+    base_sha="$github_sha"
+    candidate_sha="$github_sha"
+    local_run_nonce="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+    if [[ ! "$local_run_nonce" =~ ^[0-9a-f]{32}$ ]]; then
+      overall_failure="invalid_local_run_nonce"
+      echo "[FAIL] locally generated run identity must be exactly 32 lowercase hex characters" >&2
+      exit 1
+    fi
+    if ! status_output="$(git -C "$source_repo" status --porcelain=v1 --untracked-files=all 2>/dev/null)"; then
+      overall_failure="source_status_unavailable"
+      echo "[FAIL] local source status could not be established" >&2
+      exit 1
+    fi
+    if [[ -n "$status_output" ]]; then
+      overall_failure="dirty_source_tree"
+      echo "[FAIL] local acceptance evidence requires a clean tracked and untracked source tree" >&2
+      exit 1
+    fi
+    run_identity="$local_run_nonce"
+  fi
+
+  if [[ ! "$github_sha" =~ ^[0-9a-f]{40}$ ]]; then
+    overall_failure="invalid_github_sha"
+    echo "[FAIL] source identity must be an exact lowercase 40-character Git commit SHA" >&2
+    exit 1
+  fi
+}
+
 deployment_is_ready() {
   local organ="$1"
   local deadline_ms="$2"
@@ -284,10 +493,11 @@ image_pull_failure() {
 }
 
 mark_readiness_timeout() {
-  local organ
-  for organ in "${ORGANS[@]}"; do
-    if [[ "${deployment_ready[$organ]}" != "true" ]]; then
-      service_failure["$organ"]="deployment_readiness_timeout"
+  local organ organ_index
+  for organ_index in "${!ORGANS[@]}"; do
+    organ="${ORGANS[$organ_index]}"
+    if [[ "${deployment_ready[$organ_index]}" != "true" ]]; then
+      service_failure[$organ_index]="deployment_readiness_timeout"
       echo "   [FAIL] ${organ}: readiness deadline exceeded" >&2
     fi
   done
@@ -432,26 +642,12 @@ require_positive_integer "trace_timeout_seconds" "$TRACE_TIMEOUT_SECONDS"
 require_positive_integer "trace_poll_seconds" "$TRACE_POLL_SECONDS"
 
 overall_failure=""
-if [[ ! "$github_sha" =~ ^[0-9a-f]{40}$ ]]; then
-  overall_failure="invalid_github_sha"
-  echo "[FAIL] GITHUB_SHA must be an exact lowercase 40-character commit SHA" >&2
-  exit 1
-fi
-if [[ ! "$github_run_id" =~ ^[1-9][0-9]*$ ]]; then
-  overall_failure="invalid_github_run_id"
-  echo "[FAIL] GITHUB_RUN_ID must identify this workflow run" >&2
-  exit 1
-fi
-if [[ ! "$github_run_attempt" =~ ^[1-9][0-9]*$ ]]; then
-  overall_failure="invalid_github_run_attempt"
-  echo "[FAIL] GITHUB_RUN_ATTEMPT must identify this workflow attempt" >&2
-  exit 1
-fi
+derive_execution_identity
 
 trace_id="$(printf 'szl-build-env-acceptance-trace-v1\0%s\0%s\0%s' \
-  "$github_sha" "$github_run_id" "$github_run_attempt" | sha256sum | cut -c1-32)"
+  "$github_sha" "$execution_context" "$run_identity" | sha256_hex | cut -c1-32)"
 span_id="$(printf 'szl-build-env-acceptance-span-v1\0%s\0%s\0%s' \
-  "$github_sha" "$github_run_id" "$github_run_attempt" | sha256sum | cut -c1-16)"
+  "$github_sha" "$execution_context" "$run_identity" | sha256_hex | cut -c1-16)"
 traceparent="00-${trace_id}-${span_id}-01"
 
 readiness_deadline_ms=$(( $(epoch_milliseconds) + READINESS_TIMEOUT_SECONDS * 1000 ))
@@ -459,23 +655,24 @@ readiness_deadline_ms=$(( $(epoch_milliseconds) + READINESS_TIMEOUT_SECONDS * 10
 echo "==> 1. Require all five deployments"
 missing_deployment=0
 deployment_existence_timeout=0
-for organ in "${ORGANS[@]}"; do
+for organ_index in "${!ORGANS[@]}"; do
+  organ="${ORGANS[$organ_index]}"
   remaining_ms="$(remaining_milliseconds "$readiness_deadline_ms")"
   if (( remaining_ms == 0 )); then
     deployment_existence_timeout=1
-    service_failure["$organ"]="deployment_existence_timeout"
+    service_failure[$organ_index]="deployment_existence_timeout"
     echo "   [FAIL] ${organ}: deployment lookup deadline exceeded" >&2
   elif kubectl --request-timeout="${remaining_ms}ms" -n "$NAMESPACE" get deployment "$organ" >/dev/null 2>&1; then
-    deployment_exists["$organ"]="true"
-    service_failure["$organ"]="deployment_not_ready"
+    deployment_exists[$organ_index]="true"
+    service_failure[$organ_index]="deployment_not_ready"
     echo "   [OK] ${organ}: deployment exists"
   elif (( $(remaining_milliseconds "$readiness_deadline_ms") == 0 )); then
     deployment_existence_timeout=1
-    service_failure["$organ"]="deployment_existence_timeout"
+    service_failure[$organ_index]="deployment_existence_timeout"
     echo "   [FAIL] ${organ}: deployment lookup deadline exceeded" >&2
   else
     missing_deployment=1
-    service_failure["$organ"]="deployment_missing"
+    service_failure[$organ_index]="deployment_missing"
     echo "   [FAIL] ${organ}: deployment missing" >&2
   fi
 done
@@ -501,10 +698,11 @@ else
     pending=0
     pull_failure=0
     deadline_exhausted=0
-    for organ in "${ORGANS[@]}"; do
+    for organ_index in "${!ORGANS[@]}"; do
+      organ="${ORGANS[$organ_index]}"
       if deployment_is_ready "$organ" "$readiness_deadline_ms"; then
-        deployment_ready["$organ"]="true"
-        service_failure["$organ"]="health_not_evaluated"
+        deployment_ready[$organ_index]="true"
+        service_failure[$organ_index]="health_not_evaluated"
       else
         readiness_status=$?
         if (( readiness_status == 2 )); then
@@ -512,10 +710,10 @@ else
           break
         fi
         pending=1
-        deployment_ready["$organ"]="false"
+        deployment_ready[$organ_index]="false"
         if image_pull_failure "$organ" "$readiness_deadline_ms"; then
           pull_failure=1
-          service_failure["$organ"]="image_pull_failure"
+          service_failure[$organ_index]="image_pull_failure"
           echo "   [FAIL] ${organ}: image pull or registry credential failure" >&2
         else
           image_pull_status=$?
@@ -523,7 +721,7 @@ else
             deadline_exhausted=1
             break
           fi
-          service_failure["$organ"]="deployment_not_ready"
+          service_failure[$organ_index]="deployment_not_ready"
         fi
       fi
     done
@@ -555,8 +753,8 @@ else
 fi
 
 all_deployments_ready=1
-for organ in "${ORGANS[@]}"; do
-  if [[ "${deployment_exists[$organ]}" != "true" || "${deployment_ready[$organ]}" != "true" ]]; then
+for organ_index in "${!ORGANS[@]}"; do
+  if [[ "${deployment_exists[$organ_index]}" != "true" || "${deployment_ready[$organ_index]}" != "true" ]]; then
     all_deployments_ready=0
   fi
 done
@@ -564,10 +762,11 @@ done
 if (( all_deployments_ready != 0 )); then
   echo "==> 3. Require HTTP 200 from every /healthz endpoint"
   health_port=18080
-  for organ in "${ORGANS[@]}"; do
+  for organ_index in "${!ORGANS[@]}"; do
+    organ="${ORGANS[$organ_index]}"
     pf_log="${STATE_DIR}/health-${organ}-port-forward.log"
     if ! start_port_forward "service/${organ}" "$health_port" 8080 "$pf_log"; then
-      service_failure["$organ"]="health_port_forward_failed"
+      service_failure[$organ_index]="health_port_forward_failed"
       record_failure "health_probe_failed"
       echo "   [FAIL] ${organ}: could not establish health port-forward" >&2
       stop_port_forward
@@ -579,19 +778,19 @@ if (( all_deployments_ready != 0 )); then
     if health_code="$(curl --silent --show-error --output "$health_body" \
       --write-out '%{http_code}' --connect-timeout "$HTTP_TIMEOUT_SECONDS" \
       --max-time "$HTTP_TIMEOUT_SECONDS" "http://127.0.0.1:${health_port}/healthz")"; then
-      health_http_code["$organ"]="$health_code"
+      health_http_code[$organ_index]="$health_code"
       if [[ "$health_code" == "200" ]]; then
-        service_result["$organ"]="PASS"
-        service_failure["$organ"]=""
+        service_result[$organ_index]="PASS"
+        service_failure[$organ_index]=""
         echo "   [OK] ${organ}: /healthz returned 200"
       else
-        service_failure["$organ"]="health_http_${health_code}"
+        service_failure[$organ_index]="health_http_${health_code}"
         record_failure "health_probe_failed"
         echo "   [FAIL] ${organ}: /healthz returned ${health_code}" >&2
       fi
     else
-      health_http_code["$organ"]=""
-      service_failure["$organ"]="health_unreachable"
+      health_http_code[$organ_index]=""
+      service_failure[$organ_index]="health_unreachable"
       record_failure "health_probe_failed"
       echo "   [FAIL] ${organ}: /healthz was unreachable" >&2
     fi
