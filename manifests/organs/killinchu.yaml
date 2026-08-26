@@ -1,10 +1,8 @@
 # Organ Deployment: killinchu
 # Image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0 (from bundle oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0)
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
-# !!! HONEST GAP: the killinchu image is PRIVATE on GHCR. Until the founder flips
-# !!! ghcr.io/szl-holdings/killinchu to public (or a pull secret is added), this
-# !!! Deployment will ImagePullBackOff. This is EXPECTED. See HONEST_GAPS.md and
-# !!! FOUNDER_BUILD_ENV.md. Do NOT assume killinchu is public.
+# The image is private on GHCR. bootstrap/configure-ghcr-pull-auth.py creates the
+# runtime-only Secret this Deployment requires; credentials are never committed.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,11 +23,22 @@ spec:
         app: killinchu
         szl.organ: "killinchu"
     spec:
+      # Only this private-image pod may use the registry credential. The main
+      # application container does not receive the Secret as a mounted volume.
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: szl-ghcr-pull
       # cosign public key for the supply-chain gate (NOT a secret — public key only)
       volumes:
         - name: cosign-pub
           configMap:
             name: szl-cosign-pub
+        - name: registry-auth
+          secret:
+            secretName: szl-ghcr-pull
+            items:
+              - key: .dockerconfigjson
+                path: config.json
       initContainers:
         - name: cosign-gate
           image: ghcr.io/sigstore/cosign/cosign:v2.4.1
@@ -47,8 +56,10 @@ spec:
           env:
             - { name: ORGAN_NAME,  value: "killinchu" }
             - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/killinchu:uds-v0.2.0" }
+            - { name: DOCKER_CONFIG, value: "/registry-auth" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
+            - { name: registry-auth, mountPath: /registry-auth, readOnly: true }
       containers:
         - name: killinchu
           image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0

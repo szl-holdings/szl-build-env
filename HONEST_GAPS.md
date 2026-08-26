@@ -10,14 +10,21 @@
 
 - `ghcr.io/szl-holdings/killinchu:uds-v0.2.0` is **pushed and cosign-signed**
   (tlog `1705054225`) but the GHCR package visibility is **private**.
-- **Effect:** `manifests/organs/killinchu.yaml` will `ImagePullBackOff` on a fresh
-  cluster. `make verify` reports killinchu as `KNOWN-GAP` (not `FAIL`) and
-  `make trace` shows 4/5 organs in the trace tree.
+- **Effect:** an unauthenticated local cluster cannot start killinchu. `make verify`
+  reports killinchu as `KNOWN-GAP` when the host is unauthenticated, and the
+  five-organ acceptance gate fails closed rather than presenting 4/5 as success.
 - **We do NOT fake this green.** No assumption is made that killinchu is public.
-- **Unblock (founder, one click):**
-  https://github.com/orgs/szl-holdings/packages/container/killinchu/settings
-  → *Change visibility* → **Public**.
-  Alternatively, add an image pull secret (see FOUNDER_BUILD_ENV.md troubleshooting).
+- **Authenticated path:** pass a `read:packages` credential on standard input to
+  `bootstrap/configure-ghcr-pull-auth.py`. The helper creates a fresh, immutable
+  `szl/szl-ghcr-pull` Secret. Only the killinchu pod references it for kubelet
+  image pulls; only its Cosign init container mounts it, read-only. The application
+  container never receives the credential as a volume or environment variable.
+- CI uses the job-scoped `GITHUB_TOKEN` with `packages: read`, rejects forked PR
+  acceptance before authentication, and removes the host-side Docker config after
+  verification. The killinchu package must separately grant the repository Actions
+  access; a missing grant or credential is a hard failure, never an anonymous pass.
+- Making the package public remains an alternative founder action:
+  https://github.com/orgs/szl-holdings/packages/container/killinchu/settings.
 - The other 4 organs (`a11oy`, `sentra`, `amaru`, `rosie`) pull anonymously today,
   contingent on their `uds-v0.2.0` images being public. As of the last build ledger,
   `a11oy`, `sentra`, `amaru` had a separate org-level GHCR push block; if their
@@ -88,5 +95,7 @@
 - **NOT committed (never):** cosign private key, GHCR PAT, Sigstore tokens, any
   `*.key` / `*.pem` private material, image pull secrets. The CI workflow uses the
   ambient `GITHUB_TOKEN` with read-only `packages: read` and no extra secrets.
-- If you add a pull secret for killinchu, create it at runtime
-  (`kubectl create secret docker-registry ...`) — do **not** commit it.
+- Create killinchu pull auth only at runtime with
+  `bootstrap/configure-ghcr-pull-auth.py`. It consumes the credential from standard
+  input, not a command argument, and suppresses kubectl output that could expose
+  the submitted Secret. Do **not** commit the resulting Docker config or Secret.

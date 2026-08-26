@@ -3,7 +3,7 @@
 
 # szl-build-env
 
-### A one-command local environment that boots SZL's full 5-organ governance stack — service mesh, telemetry, and signed-image verification — in under 10 minutes.
+### A local environment for SZL's full 5-organ governance stack — service mesh, telemetry, and signed-image verification — in under 10 minutes.
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](LICENSE) [![Build](https://github.com/szl-holdings/szl-build-env/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/szl-holdings/szl-build-env/actions/workflows/ci.yml) [![Doctrine v11](https://img.shields.io/badge/Doctrine-v11_LOCKED-3b82f6?style=flat-square)](https://github.com/szl-holdings/.github/tree/main/doctrine) [![SLSA](https://img.shields.io/badge/SLSA-L1_honest-22c55e?style=flat-square)](https://slsa.dev/spec/v1.0/levels)
 
@@ -17,15 +17,16 @@ Engineers and design partners can stand up the entire governed-AI stack on a lap
 
 ## ▶️ Live demo
 
-This is a **public** repository. It is a one-command local environment, so there is no hosted demo by design — stand it up on your own machine via the Quick start below, or see [docs.szlholdings.com](https://szl-holdings.github.io/docs-site) for the public product walkthrough.
+This is a **public** repository. There is no hosted demo by design — stand it up
+on your own machine via the authenticated quickstart below, or see
+[docs.szlholdings.com](https://szl-holdings.github.io/docs-site) for the public
+product walkthrough.
 
-## ⚡ Quick start (30 seconds)
+## ⚡ Quick start
 
-```bash
-git clone https://github.com/szl-holdings/szl-build-env.git
-cd szl-build-env
-make quickstart   # or: see docs.szlholdings.com/quickstart
-```
+Follow the [authenticated 10-minute quickstart](#10-minute-quickstart). The
+killinchu image is private, so a real five-organ run requires read-only GHCR
+access; the setup does not pretend an anonymous 4/5 deployment is complete.
 
 ## 🔍 How it works
 
@@ -79,18 +80,39 @@ Organ images are pulled from the published bundle
 git clone https://github.com/szl-holdings/szl-build-env.git
 cd szl-build-env
 
-# 1. bring up the whole stack (kind + istio ambient + otel + 5 organs)
+# 1. create the cluster, then install read-only GHCR auth for private killinchu
+make cluster
+GHCR_USERNAME=your-github-login
+GHCR_AUTH_DIR="$(mktemp -d)"
+read -rsp "GHCR token (read:packages only): " GHCR_TOKEN; echo
+printf '%s' "$GHCR_TOKEN" | python3 bootstrap/configure-ghcr-pull-auth.py \
+  --username "$GHCR_USERNAME" --docker-config-dir "$GHCR_AUTH_DIR"
+unset GHCR_TOKEN
+export DOCKER_CONFIG="$GHCR_AUTH_DIR"
+
+# 2. bring up the whole stack (kind + istio ambient + otel + 5 organs)
 make up           # ~6-8 min on a warm Docker cache
 
-# 2. prove the supply-chain gate is honest (cosign + slsa-verifier per organ)
+# 3. prove the supply-chain gate is honest (cosign + slsa-verifier per organ)
 make verify
 
-# 3. send a request and watch one traceparent propagate across all 5 organs
+# Remove the host copy after verification. The namespace-scoped pull Secret remains.
+rm -- "$GHCR_AUTH_DIR/config.json" && rmdir "$GHCR_AUTH_DIR"
+unset DOCKER_CONFIG GHCR_AUTH_DIR GHCR_USERNAME
+
+# 4. send a request and watch one traceparent propagate across all 5 organs
 make trace        # opens / prints the Jaeger trace tree
 
-# 4. tear everything down
+# 5. tear everything down
 make down
 ```
+
+The token needs only `read:packages`, must be authorized for the organization,
+and the `killinchu` package must grant this repository or operator account read
+access. The helper accepts the token only on standard input. It refuses to
+overwrite an existing pull Secret and never places the token in process arguments
+or command output. An unauthenticated local cluster remains an honest, fail-closed
+4/5 environment; `make trace` will not claim five-organ acceptance.
 
 One-shot golden path for a demo:
 
@@ -123,6 +145,7 @@ make demo         # up -> verify -> seed request -> show cross-organ trace + DSS
 kind/cluster.yaml                  single-node kind config (pinned node image)
 bootstrap/install-istio-ambient.sh Istio ambient installer (pinned 1.25.0)
 bootstrap/install-otel-collector.sh OTLP collector + Jaeger exporter
+bootstrap/configure-ghcr-pull-auth.py stdin-only, runtime GHCR credential installer
 manifests/organs/*.yaml            5 organ Deployments (cosign-gated initContainer)
 manifests/mesh/waypoint.yaml       ambient waypoint for inter-organ L7 routing
 manifests/otel/collector.yaml      OTLP collector config (DSSE attr-promoting processor)
@@ -141,9 +164,11 @@ HONEST_GAPS.md                     everything currently stubbed and why
 Read [`HONEST_GAPS.md`](./HONEST_GAPS.md) before you trust a green check.
 Short version:
 
-- **`killinchu` image is private.** It will `ImagePullBackOff` until the founder
-  flips the GHCR package to public (or you add a pull secret). The other 4 organs
-  pull anonymously. `make verify` reports this honestly rather than skipping it.
+- **`killinchu` image is private.** Local operators must install a read-only
+  runtime pull credential with `bootstrap/configure-ghcr-pull-auth.py`; without
+  it, killinchu stays blocked and five-organ acceptance fails closed. CI derives
+  the same runtime-only credential from its read-only `GITHUB_TOKEN`. The other
+  4 organs pull anonymously.
 - **DSSE receipt verification is REAL** — `verify/dsse_verify.py`
   (`make verify-dsse`) verifies ECDSA-P256-SHA256 envelopes against
   `keys/cosign.pub`, emitting honest verdicts (`verified` / `unsigned-honest` /
@@ -183,4 +208,3 @@ Apache-2.0. See [`LICENSE`](./LICENSE).
 Cite this work via [`CITATION.cff`](CITATION.cff). Math foundations: [szl-papers](https://github.com/szl-holdings/szl-papers) · [lutar-lean](https://github.com/szl-holdings/lutar-lean) (kernel `c7c0ba17`).
 
 <sub>Λ Conjecture 1 (not a theorem) · 749/14/163 v11 LOCKED (kernel `c7c0ba17`) · SLSA L1 honest · Section 889 = 5 vendors · [SZL Holdings](https://a-11-oy.com) · Apache-2.0 code · CC-BY-4.0 papers</sub>
-

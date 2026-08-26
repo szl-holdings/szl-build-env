@@ -8,6 +8,7 @@ as the SZL_COSIGN_PRIVATE_KEY_PEM env var (optional: true — honest fallback).
 Run from repo root:  python3 scripts/gen_organ_deployments.py
 """
 from __future__ import annotations
+
 import os
 
 ORGANS = ["a11oy", "sentra", "amaru", "killinchu", "rosie"]
@@ -45,7 +46,7 @@ spec:
         app.kubernetes.io/name: {organ}
         app.kubernetes.io/part-of: szl-organs
     spec:
-      containers:
+{runtime_auth}      containers:
         - name: {organ}
           image: ghcr.io/szl-holdings/{organ}:{image_tag}
           imagePullPolicy: IfNotPresent
@@ -83,11 +84,24 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     for organ in ORGANS:
         path = os.path.join(OUT, f"{organ}-deployment.yaml")
+        runtime_auth = ""
+        if organ == "killinchu":
+            runtime_auth = """      # Runtime registry auth is restricted to the one private-image pod.
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: szl-ghcr-pull
+"""
         with open(path, "w") as f:
-            f.write(TEMPLATE.format(organ=organ, ns=NS, image_tag=IMAGE_TAG))
+            f.write(
+                TEMPLATE.format(
+                    organ=organ,
+                    ns=NS,
+                    image_tag=IMAGE_TAG,
+                    runtime_auth=runtime_auth,
+                )
+            )
         print("wrote", path)
 
 
 if __name__ == "__main__":
     main()
-
