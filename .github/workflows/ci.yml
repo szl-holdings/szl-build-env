@@ -95,7 +95,6 @@ jobs:
       - name: make verify (honest cosign + SLSA gate)
         env:
           DOCKER_CONFIG: ${{ runner.temp }}/szl-ghcr-auth
-          REQUIRE_PRIVATE_ORGANS: "1"
         run: make verify
 
       - name: Remove host-side registry auth

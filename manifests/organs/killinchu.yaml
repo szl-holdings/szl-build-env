@@ -1,5 +1,6 @@
 # Organ Deployment: killinchu
-# Image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0 (from bundle oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0)
+# Source: protected main cc49a0cc5fa03405fc7894c64040e013911a63bc
+# Image: ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 # The image is private on GHCR. bootstrap/configure-ghcr-pull-auth.py creates the
 # runtime-only Secret this Deployment requires; credentials are never committed.
@@ -48,24 +49,32 @@ spec:
           # workflow identity. Authoritative host gate: verify/cosign-init.sh.
           args:
             - "verify"
-            - "--certificate-identity-regexp"
-            - '^https://github\.com/szl-holdings/killinchu/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)$'
+            - "--certificate-identity"
+            - "https://github.com/szl-holdings/killinchu/.github/workflows/ghcr-build-push.yml@refs/heads/main"
             - "--certificate-oidc-issuer"
             - "https://token.actions.githubusercontent.com"
-            - "ghcr.io/szl-holdings/killinchu:uds-v0.2.0"
+            - "--certificate-github-workflow-repository"
+            - "szl-holdings/killinchu"
+            - "--certificate-github-workflow-ref"
+            - "refs/heads/main"
+            - "--certificate-github-workflow-sha"
+            - "cc49a0cc5fa03405fc7894c64040e013911a63bc"
+            - "--certificate-github-workflow-trigger"
+            - "push"
+            - "ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9"
           env:
             - { name: ORGAN_NAME,  value: "killinchu" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/killinchu:uds-v0.2.0" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9" }
             - { name: DOCKER_CONFIG, value: "/registry-auth" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
             - { name: registry-auth, mountPath: /registry-auth, readOnly: true }
       containers:
         - name: killinchu
-          image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0
+          image: ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9
           imagePullPolicy: IfNotPresent
           ports:
-            - { containerPort: 8080, name: http }
+            - { containerPort: 7860, name: http }
           env:
             # OTLP export so this organ's spans join the cross-organ trace
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4318" }
@@ -73,11 +82,11 @@ spec:
             - { name: OTEL_TRACES_EXPORTER,        value: "otlp" }
             - { name: SZL_ORGAN,                   value: "killinchu" }
           readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /api/killinchu/healthz, port: http }
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /api/killinchu/healthz, port: http }
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:
@@ -95,4 +104,4 @@ spec:
   selector:
     app: killinchu
   ports:
-    - { name: http, port: 8080, targetPort: 8080 }
+    - { name: http, port: 8080, targetPort: http }

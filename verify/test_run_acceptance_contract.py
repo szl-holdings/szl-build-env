@@ -11,6 +11,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "verify" / "run-acceptance.sh"
+ROUTE_VALIDATOR = ROOT / "verify" / "validate_route_ack.py"
+TRACE_VALIDATOR = ROOT / "verify" / "validate_jaeger_trace.py"
+VALID_TRACE_ID = "0123456789abcdef0123456789abcdef"
+VALID_ROOT_SPAN_ID = "ffffffffffffffff"
+VALID_SEED_EPOCH_US = 1_800_000_000_000_000
+VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
+VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
 
 
 def _usable_bash() -> str | None:
@@ -299,6 +306,179 @@ def test_pull_request_rejects_event_parent_mismatch(tmp_path):
     assert result.returncode == 1
     assert "parents do not bind the exact base and candidate" in result.stderr
     assert evidence["failure"] == "github_pull_request_parent_mismatch"
+
+
+def _run_route_validator(tmp_path, payload):
+    response = tmp_path / "route-response"
+    if isinstance(payload, bytes):
+        response.write_bytes(payload)
+    else:
+        response.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    return subprocess.run(
+        [
+            sys.executable,
+            str(ROUTE_VALIDATOR),
+            "--path",
+            str(response),
+            "--traceparent",
+            VALID_TRACEPARENT,
+            "--fanout",
+            ",".join(VALID_FANOUT),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_route_acknowledgement_requires_exact_json_trace_and_fanout(tmp_path):
+    payload = {
+        "accepted": True,
+        "fanout": VALID_FANOUT,
+        "schema": "szl.build-env.fanout-ack/v1",
+        "traceparent": VALID_TRACEPARENT,
+    }
+    assert _run_route_validator(tmp_path, payload).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"<html>application shell</html>",
+        b"{}",
+        b'{"accepted":true,"accepted":true,"fanout":[],"schema":"szl.build-env.fanout-ack/v1","traceparent":"x"}',
+        {"accepted": True, "fanout": VALID_FANOUT, "schema": "wrong", "traceparent": VALID_TRACEPARENT},
+        {"accepted": True, "fanout": VALID_FANOUT, "schema": "szl.build-env.fanout-ack/v1", "traceparent": "00-" + "0" * 32 + "-" + "0" * 16 + "-01"},
+        {"accepted": True, "fanout": VALID_FANOUT[:-1], "schema": "szl.build-env.fanout-ack/v1", "traceparent": VALID_TRACEPARENT},
+        {"accepted": True, "fanout": VALID_FANOUT + ["extra"], "schema": "szl.build-env.fanout-ack/v1", "traceparent": VALID_TRACEPARENT},
+        {"accepted": True, "fanout": ["sentra", "amaru", "amaru", "rosie"], "schema": "szl.build-env.fanout-ack/v1", "traceparent": VALID_TRACEPARENT},
+        {"accepted": True, "fanout": list(reversed(VALID_FANOUT)), "schema": "szl.build-env.fanout-ack/v1", "traceparent": VALID_TRACEPARENT},
+        {"accepted": True, "fanout": VALID_FANOUT, "schema": "szl.build-env.fanout-ack/v1", "traceparent": VALID_TRACEPARENT, "extra": True},
+        b"\xff\xfe",
+    ],
+)
+def test_route_acknowledgement_rejects_soft_or_unbound_evidence(tmp_path, payload):
+    assert _run_route_validator(tmp_path, payload).returncode == 1
+
+
+
+def _valid_jaeger_payload():
+    services = ["a11oy", "sentra", "amaru", "killinchu", "rosie"]
+    spans = []
+    parent_id = VALID_ROOT_SPAN_ID
+    for index, service in enumerate(services, start=1):
+        span_id = f"{index:016x}"
+        spans.append(
+            {
+                "duration": 100,
+                "operationName": "governed-fanout",
+                "process": {"serviceName": service},
+                "references": [
+                    {
+                        "refType": "CHILD_OF",
+                        "spanID": parent_id,
+                        "traceID": VALID_TRACE_ID,
+                    }
+                ],
+                "spanID": span_id,
+                "startTime": VALID_SEED_EPOCH_US + index,
+                "traceID": VALID_TRACE_ID,
+            }
+        )
+        parent_id = span_id
+    return {"data": [{"processes": {}, "spans": spans}]}
+
+
+def _run_trace_validator(tmp_path, payload):
+    response = tmp_path / "jaeger-response.json"
+    observation = tmp_path / "trace-observation.json"
+    if isinstance(payload, bytes):
+        response.write_bytes(payload)
+    else:
+        response.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(TRACE_VALIDATOR),
+            "--response",
+            str(response),
+            "--observation",
+            str(observation),
+            "--trace-id",
+            VALID_TRACE_ID,
+            "--root-span-id",
+            VALID_ROOT_SPAN_ID,
+            "--seed-epoch-us",
+            str(VALID_SEED_EPOCH_US),
+            "--services",
+            "a11oy,sentra,amaru,killinchu,rosie",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert observation.is_file(), result.stderr
+    return result, json.loads(observation.read_text(encoding="utf-8"))
+
+
+def test_jaeger_trace_requires_fresh_connected_five_service_topology(tmp_path):
+    result, observation = _run_trace_validator(tmp_path, _valid_jaeger_payload())
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "complete"
+    assert observation["state"] == "complete"
+    assert observation["fresh_span_count"] == 5
+    assert observation["connected_services"] == ["a11oy", "amaru", "killinchu", "rosie", "sentra"]
+    assert observation["missing_services"] == []
+
+
+def test_jaeger_trace_rejects_disconnected_service_name_bag(tmp_path):
+    payload = _valid_jaeger_payload()
+    for span in payload["data"][0]["spans"]:
+        span["references"] = []
+
+    result, observation = _run_trace_validator(tmp_path, payload)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "incomplete"
+    assert observation["failure"] == "incomplete_connected_service_set"
+    assert observation["observed_services"] == ["a11oy", "amaru", "killinchu", "rosie", "sentra"]
+    assert observation["connected_services"] == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "failure"),
+    [
+        ("stale", "span_precedes_trace_seed"),
+        ("duplicate-span", "duplicate_span_id"),
+        ("cross-trace", "cross_trace_reference"),
+    ],
+)
+def test_jaeger_trace_rejects_stale_or_contradictory_graphs(tmp_path, mutation, failure):
+    payload = _valid_jaeger_payload()
+    spans = payload["data"][0]["spans"]
+    if mutation == "stale":
+        spans[0]["startTime"] = VALID_SEED_EPOCH_US - 1
+    elif mutation == "duplicate-span":
+        spans[-1]["spanID"] = spans[0]["spanID"]
+    else:
+        spans[2]["references"][0]["traceID"] = "0" * 32
+
+    result, observation = _run_trace_validator(tmp_path, payload)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "malformed"
+    assert observation["failure"] == failure
+
+def test_acceptance_script_invokes_strict_route_validator():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'validate_route_ack.py" \\' in source
+    assert 'trace_failure="seed_response_invalid"' in source
+    assert "falls back to /healthz" not in source
+    assert "HEALTH_PATHS=(/healthz /healthz /healthz /api/killinchu/healthz /healthz)" in source
+    assert 'validate_jaeger_trace.py" \\' in source
+    assert '--root-span-id "$span_id"' in source
+    assert '--seed-epoch-us "$trace_seed_epoch_us"' in source
 
 
 def test_script_avoids_bash4_and_gnu_coreutils_only_primitives():

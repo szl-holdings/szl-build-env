@@ -10,8 +10,10 @@ HTTP_TIMEOUT_SECONDS="${HTTP_TIMEOUT_SECONDS:-15}"
 TRACE_TIMEOUT_SECONDS="${TRACE_TIMEOUT_SECONDS:-90}"
 TRACE_POLL_SECONDS="${TRACE_POLL_SECONDS:-4}"
 EVIDENCE_PATH="${ACCEPTANCE_EVIDENCE_PATH:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/szl-build-env-acceptance.json}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 ORGANS=(a11oy sentra amaru killinchu rosie)
+HEALTH_PATHS=(/healthz /healthz /healthz /api/killinchu/healthz /healthz)
 EXPECTED_SERVICES="a11oy,sentra,amaru,killinchu,rosie"
 STATE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/szl-acceptance.XXXXXX")"
 TRACE_RESPONSE_PATH="${STATE_DIR}/trace-response.json"
@@ -43,6 +45,7 @@ traceparent=""
 trace_seed_http_code=""
 trace_result="FAIL"
 trace_failure="not_run"
+trace_seed_epoch_us=""
 PF_PID=""
 
 record_failure() {
@@ -94,13 +97,15 @@ cleanup_port_forward() {
 
 emit_evidence() {
   local service_state_path="${STATE_DIR}/services.tsv"
-  local organ organ_index
+  local organ organ_index health_path
 
   : > "$service_state_path"
   for organ_index in "${!ORGANS[@]}"; do
     organ="${ORGANS[$organ_index]}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    health_path="${HEALTH_PATHS[$organ_index]}"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$organ" \
+      "$health_path" \
       "${deployment_exists[$organ_index]}" \
       "${deployment_ready[$organ_index]}" \
       "${health_http_code[$organ_index]}" \
@@ -129,6 +134,7 @@ emit_evidence() {
   EVIDENCE_TRACE_ID="$trace_id" \
   EVIDENCE_TRACEPARENT="$traceparent" \
   EVIDENCE_TRACE_SEED_HTTP_CODE="$trace_seed_http_code" \
+  EVIDENCE_TRACE_SEED_EPOCH_US="$trace_seed_epoch_us" \
   EVIDENCE_TRACE_RESULT="$trace_result" \
   EVIDENCE_TRACE_FAILURE="$trace_failure" \
   EVIDENCE_READINESS_TIMEOUT="$READINESS_TIMEOUT_SECONDS" \
@@ -153,20 +159,23 @@ expected = os.environ["EXPECTED_SERVICES"].split(",")
 services = []
 with open(os.environ["SERVICE_STATE_PATH"], encoding="utf-8") as state_file:
     for line in state_file:
-        name, exists, ready, http_code, result, failure = line.rstrip("\n").split("\t")
+        name, health_path, exists, ready, http_code, result, failure = line.rstrip("\n").split("\t")
         services.append(
             {
                 "deployment_exists": exists == "true",
                 "deployment_ready": ready == "true",
                 "failure": None if not failure else failure,
                 "health_http_code": optional_http_code(http_code),
+                "health_path": health_path,
                 "name": name,
                 "result": result,
             }
         )
 
 trace_observation = {
+    "connected_services": [],
     "failure": None,
+    "fresh_span_count": 0,
     "missing_services": expected,
     "observed_services": [],
     "span_count": 0,
@@ -211,11 +220,16 @@ evidence = {
     "schema": "https://szl.dev/schemas/build-env-acceptance/v1",
     "services": services,
     "trace": {
+        "connected_services": trace_observation.get("connected_services", []),
         "failure": os.environ["EVIDENCE_TRACE_FAILURE"] or None,
+        "fresh_span_count": trace_observation.get("fresh_span_count", 0),
         "missing_services": trace_observation.get("missing_services", expected),
         "observation_failure": trace_observation.get("failure"),
         "observed_services": trace_observation.get("observed_services", []),
         "result": os.environ["EVIDENCE_TRACE_RESULT"],
+        "seed_epoch_us": optional_positive_integer(
+            os.environ["EVIDENCE_TRACE_SEED_EPOCH_US"]
+        ),
         "seed_http_code": optional_http_code(
             os.environ["EVIDENCE_TRACE_SEED_HTTP_CODE"]
         ),
@@ -536,106 +550,13 @@ stop_port_forward() {
 }
 
 parse_trace_response() {
-  TRACE_RESPONSE_PATH="$TRACE_RESPONSE_PATH" \
-  TRACE_OBSERVATION_PATH="$TRACE_OBSERVATION_PATH" \
-  EXPECTED_SERVICES="$EXPECTED_SERVICES" \
-  EXPECTED_TRACE_ID="$trace_id" \
-  python3 - <<'PY'
-import json
-import os
-import re
-from pathlib import Path
-
-response_path = Path(os.environ["TRACE_RESPONSE_PATH"])
-observation_path = Path(os.environ["TRACE_OBSERVATION_PATH"])
-expected = os.environ["EXPECTED_SERVICES"].split(",")
-expected_set = set(expected)
-trace_id = os.environ["EXPECTED_TRACE_ID"]
-
-
-def finish(state, spans=0, services=(), failure=None):
-    observed = sorted(set(services))
-    payload = {
-        "failure": failure,
-        "missing_services": [name for name in expected if name not in observed],
-        "observed_services": observed,
-        "span_count": spans,
-        "state": state,
-    }
-    with observation_path.open("w", encoding="utf-8", newline="\n") as output:
-        json.dump(payload, output, separators=(",", ":"), sort_keys=True)
-        output.write("\n")
-    print(state)
-    raise SystemExit(0)
-
-
-try:
-    with response_path.open(encoding="utf-8") as response_file:
-        payload = json.load(response_file)
-except (OSError, UnicodeError, json.JSONDecodeError):
-    finish("malformed", failure="malformed_jaeger_json")
-
-if not isinstance(payload, dict) or "data" not in payload:
-    finish("malformed", failure="malformed_jaeger_envelope")
-traces = payload["data"]
-if not isinstance(traces, list):
-    finish("malformed", failure="malformed_jaeger_data")
-if not traces:
-    finish("absent", failure="trace_not_found")
-
-matching = []
-for trace in traces:
-    if not isinstance(trace, dict) or not isinstance(trace.get("spans"), list):
-        finish("malformed", failure="malformed_jaeger_trace")
-    span_ids = {
-        span.get("traceID", "").lower()
-        for span in trace["spans"]
-        if isinstance(span, dict)
-    }
-    if trace_id in span_ids:
-        matching.append(trace)
-
-if len(matching) != 1:
-    finish("malformed", failure="trace_identity_mismatch")
-
-trace = matching[0]
-spans = trace["spans"]
-if not spans:
-    finish("malformed", failure="trace_has_no_spans")
-processes = trace.get("processes", {})
-if not isinstance(processes, dict):
-    finish("malformed", failure="malformed_jaeger_processes")
-
-services = set()
-for span in spans:
-    if not isinstance(span, dict):
-        finish("malformed", failure="malformed_jaeger_span")
-    span_trace_id = span.get("traceID")
-    if not isinstance(span_trace_id, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", span_trace_id):
-        finish("malformed", failure="malformed_span_trace_id")
-    if span_trace_id.lower() != trace_id:
-        finish("malformed", failure="contradictory_span_trace_id")
-
-    process = span.get("process")
-    if process is None:
-        process_id = span.get("processID")
-        process = processes.get(process_id) if isinstance(process_id, str) else None
-    if not isinstance(process, dict):
-        finish("malformed", failure="missing_span_process")
-    service_name = process.get("serviceName")
-    if not isinstance(service_name, str) or not service_name.strip():
-        finish("malformed", failure="missing_service_identity")
-    services.add(service_name.strip())
-
-if expected_set <= services:
-    finish("complete", spans=len(spans), services=services)
-finish(
-    "incomplete",
-    spans=len(spans),
-    services=services,
-    failure="incomplete_service_set",
-)
-PY
+  python3 "${SCRIPT_DIR}/validate_jaeger_trace.py" \
+    --response "$TRACE_RESPONSE_PATH" \
+    --observation "$TRACE_OBSERVATION_PATH" \
+    --trace-id "$trace_id" \
+    --root-span-id "$span_id" \
+    --seed-epoch-us "$trace_seed_epoch_us" \
+    --services "$EXPECTED_SERVICES"
 }
 
 require_positive_integer "readiness_timeout_seconds" "$READINESS_TIMEOUT_SECONDS"
@@ -764,10 +685,11 @@ for organ_index in "${!ORGANS[@]}"; do
 done
 
 if (( all_deployments_ready != 0 )); then
-  echo "==> 3. Require HTTP 200 from every /healthz endpoint"
+  echo "==> 3. Require HTTP 200 from every declared health endpoint"
   health_port=18080
   for organ_index in "${!ORGANS[@]}"; do
     organ="${ORGANS[$organ_index]}"
+    health_path="${HEALTH_PATHS[$organ_index]}"
     pf_log="${STATE_DIR}/health-${organ}-port-forward.log"
     if ! start_port_forward "service/${organ}" "$health_port" 8080 "$pf_log"; then
       service_failure[$organ_index]="health_port_forward_failed"
@@ -781,22 +703,22 @@ if (( all_deployments_ready != 0 )); then
     health_body="${STATE_DIR}/health-${organ}.body"
     if health_code="$(curl --silent --show-error --output "$health_body" \
       --write-out '%{http_code}' --connect-timeout "$HTTP_TIMEOUT_SECONDS" \
-      --max-time "$HTTP_TIMEOUT_SECONDS" "http://127.0.0.1:${health_port}/healthz")"; then
+      --max-time "$HTTP_TIMEOUT_SECONDS" "http://127.0.0.1:${health_port}${health_path}")"; then
       health_http_code[$organ_index]="$health_code"
       if [[ "$health_code" == "200" ]]; then
         service_result[$organ_index]="PASS"
         service_failure[$organ_index]=""
-        echo "   [OK] ${organ}: /healthz returned 200"
+        echo "   [OK] ${organ}: ${health_path} returned 200"
       else
         service_failure[$organ_index]="health_http_${health_code}"
         record_failure "health_probe_failed"
-        echo "   [FAIL] ${organ}: /healthz returned ${health_code}" >&2
+        echo "   [FAIL] ${organ}: ${health_path} returned ${health_code}" >&2
       fi
     else
       health_http_code[$organ_index]=""
       service_failure[$organ_index]="health_unreachable"
       record_failure "health_probe_failed"
-      echo "   [FAIL] ${organ}: /healthz was unreachable" >&2
+      echo "   [FAIL] ${organ}: ${health_path} was unreachable" >&2
     fi
     stop_port_forward
     health_port=$((health_port + 1))
@@ -805,6 +727,7 @@ if (( all_deployments_ready != 0 )); then
   echo "==> 4. Inject one exact traceparent through the five-organ route"
   route_pf_log="${STATE_DIR}/route-port-forward.log"
   if start_port_forward "service/a11oy" 18090 8080 "$route_pf_log"; then
+    trace_seed_epoch_us="$(( $(epoch_milliseconds) * 1000 ))"
     if route_code="$(curl --silent --show-error --output "${STATE_DIR}/route.body" \
       --write-out '%{http_code}' --connect-timeout "$HTTP_TIMEOUT_SECONDS" \
       --max-time "$HTTP_TIMEOUT_SECONDS" -H "traceparent: ${traceparent}" \
@@ -814,9 +737,16 @@ if (( all_deployments_ready != 0 )); then
         trace_failure="seed_request_http_${route_code}"
         record_failure "trace_seed_failed"
         echo "   [FAIL] trace seed returned HTTP ${route_code}" >&2
-      else
+      elif python3 "${SCRIPT_DIR}/validate_route_ack.py" \
+        --path "${STATE_DIR}/route.body" \
+        --traceparent "$traceparent" \
+        --fanout "sentra,amaru,killinchu,rosie"; then
         trace_failure="trace_not_observed"
-        echo "   [OK] injected ${traceparent}"
+        echo "   [OK] route accepted the exact traceparent and governed fanout"
+      else
+        trace_failure="seed_response_invalid"
+        record_failure "trace_seed_failed"
+        echo "   [FAIL] trace seed response was not an exact governed acknowledgement" >&2
       fi
     else
       trace_seed_http_code=""
@@ -860,7 +790,7 @@ if (( all_deployments_ready != 0 )); then
               complete)
                 trace_result="PASS"
                 trace_failure=""
-                echo "   [OK] Jaeger returned all five service identities"
+                echo "   [OK] Jaeger returned one fresh, connected five-service trace"
                 break
                 ;;
               malformed)
@@ -926,7 +856,7 @@ fi
 if (( gate_failed == 0 )); then
   overall_result="PASS"
   overall_failure=""
-  echo "[PASS] five deployments, five health probes, and one five-service trace verified"
+  echo "[PASS] five deployments, five exact health probes, and one fresh connected five-service trace verified"
   exit 0
 fi
 

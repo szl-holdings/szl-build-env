@@ -1,5 +1,6 @@
 # Organ Deployment: amaru
-# Image: ghcr.io/szl-holdings/amaru:uds-v0.2.0 (from bundle oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0)
+# Source: signed historical source; source repository is currently unavailable 324c3d60c2e2195e89cfefb28613ff26d94e67f8
+# Image: ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 apiVersion: apps/v1
 kind: Deployment
@@ -21,6 +22,7 @@ spec:
         app: amaru
         szl.organ: "amaru"
     spec:
+      automountServiceAccountToken: false
       # cosign public key for the supply-chain gate (NOT a secret — public key only)
       volumes:
         - name: cosign-pub
@@ -35,22 +37,30 @@ spec:
           # workflow identity. Authoritative host gate: verify/cosign-init.sh.
           args:
             - "verify"
-            - "--certificate-identity-regexp"
-            - '^https://github\.com/szl-holdings/amaru/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)$'
+            - "--certificate-identity"
+            - "https://github.com/szl-holdings/amaru/.github/workflows/ghcr-build-push.yml@refs/heads/main"
             - "--certificate-oidc-issuer"
             - "https://token.actions.githubusercontent.com"
-            - "ghcr.io/szl-holdings/amaru:uds-v0.2.0"
+            - "--certificate-github-workflow-repository"
+            - "szl-holdings/amaru"
+            - "--certificate-github-workflow-ref"
+            - "refs/heads/main"
+            - "--certificate-github-workflow-sha"
+            - "324c3d60c2e2195e89cfefb28613ff26d94e67f8"
+            - "--certificate-github-workflow-trigger"
+            - "push"
+            - "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff"
           env:
             - { name: ORGAN_NAME,  value: "amaru" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/amaru:uds-v0.2.0" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
       containers:
         - name: amaru
-          image: ghcr.io/szl-holdings/amaru:uds-v0.2.0
+          image: ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff
           imagePullPolicy: IfNotPresent
           ports:
-            - { containerPort: 8080, name: http }
+            - { containerPort: 7860, name: http }
           env:
             # OTLP export so this organ's spans join the cross-organ trace
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4318" }
@@ -58,11 +68,11 @@ spec:
             - { name: OTEL_TRACES_EXPORTER,        value: "otlp" }
             - { name: SZL_ORGAN,                   value: "amaru" }
           readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            httpGet: { path: /healthz, port: 8080 }
+            httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:
@@ -80,4 +90,4 @@ spec:
   selector:
     app: amaru
   ports:
-    - { name: http, port: 8080, targetPort: 8080 }
+    - { name: http, port: 8080, targetPort: http }

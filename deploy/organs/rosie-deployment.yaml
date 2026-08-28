@@ -23,13 +23,14 @@ spec:
         app.kubernetes.io/name: rosie
         app.kubernetes.io/part-of: szl-organs
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: rosie
-          image: ghcr.io/szl-holdings/rosie:uds-v0.2.0
+          image: ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 7860
           env:
             # ---- Cosign DSSE signing key (runtime secret) -------------------
             # Canonical name read first by szl_dsse._load_private_key().
