@@ -14,35 +14,57 @@
 set -uo pipefail
 
 NAMESPACE="${NAMESPACE:-szl}"
-ORGAN_TAG="${ORGAN_TAG:-uds-v0.2.0}"
-REGISTRY="ghcr.io/szl-holdings"
 COSIGN_PUB="${COSIGN_PUB:-$(dirname "$0")/../keys/cosign.pub}"
 ORGANS=(a11oy sentra amaru killinchu rosie)
-# killinchu is private. For an unauthenticated local run, keep its access failure
-# as a KNOWN GAP so the rest of the matrix remains useful; authenticated CI sets
-# REQUIRE_PRIVATE_ORGANS=1 and turns the same condition into a hard failure.
-PRIVATE_ORGANS=("killinchu")
-# CI sets this after installing runtime auth. In that mode, an inaccessible
-# private image is a hard credential failure rather than a documented local gap.
-REQUIRE_PRIVATE_ORGANS="${REQUIRE_PRIVATE_ORGANS:-0}"
+# killinchu is private, so registry authentication is an explicit prerequisite.
+# Access, signature, certificate, and provenance failures are always hard red;
+# no verifier error is downgraded merely because an image is private.
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
-is_private() { for p in "${PRIVATE_ORGANS[@]}"; do [ "$p" = "$1" ] && return 0; done; return 1; }
+image_for() {
+  case "$1" in
+    a11oy) printf '%s\n' 'ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526' ;;
+    sentra) printf '%s\n' 'ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639' ;;
+    amaru) printf '%s\n' 'ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff' ;;
+    killinchu) printf '%s\n' 'ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9' ;;
+    rosie) printf '%s\n' 'ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848' ;;
+    *) return 1 ;;
+  esac
+}
+
+workflow_sha_for() {
+  case "$1" in
+    a11oy) printf '%s\n' 'a29f43251e63aa20469413bc006896be803a289d' ;;
+    sentra) printf '%s\n' '84c24336f7ce00aeda454c213c08da38f53e4c45' ;;
+    amaru) printf '%s\n' '324c3d60c2e2195e89cfefb28613ff26d94e67f8' ;;
+    killinchu) printf '%s\n' 'cc49a0cc5fa03405fc7894c64040e013911a63bc' ;;
+    rosie) printf '%s\n' '97be4e52695e8141036b1c4269a4722148852d4a' ;;
+    *) return 1 ;;
+  esac
+}
+
+workflow_ref_for() {
+  case "$1" in
+    rosie) printf '%s\n' 'refs/tags/uds-v0.3.1' ;;
+    a11oy|sentra|amaru|killinchu) printf '%s\n' 'refs/heads/main' ;;
+    *) return 1 ;;
+  esac
+}
 
 verify_one() {
-  local organ="$1" image="${REGISTRY}/$1:${ORGAN_TAG}"
+  local organ="$1" image workflow_sha workflow_ref identity
+  image="$(image_for "$organ")"
+  workflow_sha="$(workflow_sha_for "$organ")"
+  workflow_ref="$(workflow_ref_for "$organ")"
+  identity="https://github.com/szl-holdings/${organ}/.github/workflows/ghcr-build-push.yml@${workflow_ref}"
   echo "=============================================================="
   echo ">> ${organ}  ($image)"
 
   # 0) can we even pull/reference it?
   if ! cosign triangulate "$image" >/dev/null 2>&1; then
-    if is_private "$organ" && [ "$REQUIRE_PRIVATE_ORGANS" != "1" ]; then
-      yellow "   [SKIP-KNOWN-GAP] ${organ} image not accessible; configure read-only GHCR auth."
-      return 2
-    fi
     red "   [FAIL] cannot reference ${image} (missing image or registry authorization)"
     return 1
   fi
@@ -51,29 +73,23 @@ verify_one() {
   #    workflow, OIDC issuer = GitHub Actions). The organ images are keyless-signed
   #    (Fulcio cert in the .sig layer), so a keyed --key verify cannot validate them.
   if cosign verify \
-       --certificate-identity-regexp "^https://github\.com/szl-holdings/${organ}/\.github/workflows/ghcr-build-push\.yml@refs/(heads/main|tags/.*)\$" \
+       --certificate-identity "$identity" \
        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+       --certificate-github-workflow-repository "szl-holdings/${organ}" \
+       --certificate-github-workflow-ref "$workflow_ref" \
+       --certificate-github-workflow-sha "$workflow_sha" \
+       --certificate-github-workflow-trigger "push" \
        "$image" >/tmp/cosign.${organ}.out 2>&1; then
     green "   [OK]   cosign signature verified"
   else
-    if is_private "$organ" && [ "$REQUIRE_PRIVATE_ORGANS" != "1" ]; then
-      yellow "   [SKIP-KNOWN-GAP] cosign verify blocked; configure read-only GHCR auth."
-      return 2
-    fi
     red "   [FAIL] cosign verify FAILED — see /tmp/cosign.${organ}.out"
     sed 's/^/      /' /tmp/cosign.${organ}.out
     return 1
   fi
 
   # 2) slsa-verifier — L2 attested where present, L1 honest otherwise.
-  #    slsa-verifier refuses mutable tag references ("the image is mutable"); it
-  #    requires an immutable digest. Resolve the tag -> digest from cosign's own
-  #    triangulated signature ref (ghcr.io/...:sha256-<digest>.sig) and verify by digest.
-  local sref diref="$image" digest=""
-  sref="$(cosign triangulate "$image" 2>/dev/null || true)"
-  digest="$(printf '%s\n' "$sref" | sed -nE 's#.*[:-]sha256-([0-9a-f]{64})\.sig$#sha256:\1#p' | head -1)"
-  [ -n "$digest" ] && diref="${REGISTRY}/${organ}@${digest}"
-  if slsa-verifier verify-image "$diref" \
+  #    Every governed input is already an immutable digest reference.
+  if slsa-verifier verify-image "$image" \
        --source-uri "github.com/szl-holdings/${organ}" >/tmp/slsa.${organ}.out 2>&1; then
     green "   [OK]   SLSA L2 provenance verified"
   elif grep -qiE "no matching|no provenance|no attestation" /tmp/slsa.${organ}.out; then
@@ -96,17 +112,16 @@ verify_one() {
 
 main() {
   if ! command -v cosign >/dev/null;  then red "cosign not installed (see README prerequisites)"; exit 3; fi
-  if ! command -v slsa-verifier >/dev/null; then yellow "slsa-verifier not installed — L2 checks will be skipped"; fi
+  if ! command -v slsa-verifier >/dev/null; then red "slsa-verifier not installed (see README prerequisites)"; exit 3; fi
   [ -f "$COSIGN_PUB" ] || { red "cosign public key not found at $COSIGN_PUB"; exit 3; }
 
-  local fail=0 gap=0
+  local fail=0
   declare -A verdict
   for organ in "${ORGANS[@]}"; do
     verify_one "$organ"
     rc=$?
     case $rc in
       0) verdict[$organ]="PASS" ;;
-      2) verdict[$organ]="KNOWN-GAP"; gap=$((gap+1)) ;;
       *) verdict[$organ]="FAIL"; fail=$((fail+1)) ;;
     esac
   done
@@ -118,11 +133,6 @@ main() {
   if [ "$fail" -gt 0 ]; then
     red "RESULT: $fail organ(s) FAILED the honest supply-chain gate. Build env is NOT trustworthy."
     exit 1
-  fi
-  if [ "$gap" -gt 0 ]; then
-    yellow "RESULT: all reachable organs PASS. $gap organ(s) are KNOWN GAPS (private image)."
-    yellow "        This is honest-green: nothing faked; configure killinchu read-only GHCR auth for 5/5."
-    exit 0
   fi
   green "RESULT: 5/5 organs PASS cosign + SLSA gate. Build env supply chain is honest."
 }

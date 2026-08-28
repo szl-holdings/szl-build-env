@@ -23,13 +23,14 @@ spec:
         app.kubernetes.io/name: a11oy
         app.kubernetes.io/part-of: szl-organs
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: a11oy
-          image: ghcr.io/szl-holdings/a11oy:uds-v0.2.0
+          image: ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 7860
           env:
             # ---- Cosign DSSE signing key (runtime secret) -------------------
             # Canonical name read first by szl_dsse._load_private_key().

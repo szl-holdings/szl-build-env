@@ -13,7 +13,7 @@
 
 ## 💡 Why it matters
 
-Engineers and design partners can stand up the entire governed-AI stack on a laptop and see policy enforcement, audit receipts, and supply-chain verification working end to end — no cloud account, no air-gap setup required.
+Engineers and design partners can stand up the governed-AI topology on a laptop, verify exact image identities, and see every missing runtime proof fail closed instead of being presented as an end-to-end success.
 
 ## ▶️ Live demo
 
@@ -57,7 +57,7 @@ cluster so any SZL engineer can develop against the real fleet topology in
 | Cluster | kind, single node | node image `v1.32.2` |
 | Mesh | Istio **ambient** (ztunnel + waypoint) | `1.25.0` |
 | Telemetry | OpenTelemetry Collector → Jaeger | collector `0.135.0` |
-| Workloads | 5 organs by canonical role: **a11oy** (gate), **Policy** (egress immune-inspector, image `sentra`), **Provenance Anchor** (read-only reasoning cortex, image `amaru`), **killinchu** (counter-UAS), **Operator** (console, image `rosie`) | bundle `uds-v0.2.0` |
+| Workloads | 5 organs by canonical role: **a11oy** (gate), **Policy** (egress immune-inspector, image `sentra`), **Provenance Anchor** (read-only reasoning cortex, image `amaru`), **killinchu** (counter-UAS), **Operator** (console, image `rosie`) | five immutable digests |
 | Supply chain | `cosign verify` + `slsa-verifier` init gate | honest fail-closed |
 
 > **Naming note (doctrine).** User-facing role names are the canonical ones: **Policy**,
@@ -67,9 +67,11 @@ cluster so any SZL engineer can develop against the real fleet topology in
 > manifest filenames — kept verbatim because renaming them breaks image pulls. They are not
 > product/role labels; always refer to the organs by their canonical roles above.
 
-Organ images are pulled from the published bundle
-`oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0`
-(individual images `ghcr.io/szl-holdings/<organ>:uds-v0.2.0`).
+The bundle remains a distribution coordinate, but the cluster never deploys its
+mutable tag. Every organ is selected by an exact `@sha256:` digest and checked
+against an exact Fulcio workflow/repository/ref/source/trigger identity. The
+source/run ledger and historical-source limitations are recorded in
+[`HONEST_GAPS.md`](./HONEST_GAPS.md).
 
 ---
 
@@ -100,8 +102,9 @@ make verify
 rm -- "$GHCR_AUTH_DIR/config.json" && rmdir "$GHCR_AUTH_DIR"
 unset DOCKER_CONFIG GHCR_AUTH_DIR GHCR_USERNAME
 
-# 4. send a request and watch one traceparent propagate across all 5 organs
-make trace        # opens / prints the Jaeger trace tree
+# 4. run the strict trace gate (currently expected to fail on the missing
+#    protected-source fan-out/OTLP runtime prerequisite documented below)
+make trace
 
 # 5. tear everything down
 make down
@@ -114,10 +117,10 @@ overwrite an existing pull Secret and never places the token in process argument
 or command output. An unauthenticated local cluster remains an honest, fail-closed
 4/5 environment; `make trace` will not claim five-organ acceptance.
 
-One-shot golden path for a demo:
+One-shot honesty gate:
 
 ```bash
-make demo         # up -> verify -> seed request -> show cross-organ trace + DSSE chain
+make demo         # exits non-zero unless image, readiness, trace, and DSSE gates all pass
 ```
 
 ---
@@ -151,7 +154,9 @@ manifests/mesh/waypoint.yaml       ambient waypoint for inter-organ L7 routing
 manifests/otel/collector.yaml      OTLP collector config (DSSE attr-promoting processor)
 verify/cosign-init.sh              the fail-closed supply-chain gate
 verify/dsse_verify.py              REAL ECDSA-P256 DSSE receipt verifier (make verify-dsse)
-verify/run-acceptance.sh           /healthz + end-to-end traceparent propagation check
+verify/run-acceptance.sh           exact per-image health + connected trace acceptance gate
+verify/validate_route_ack.py       strict route acknowledgement validator
+verify/validate_jaeger_trace.py    fresh parent-linked Jaeger graph validator
 demo/greene-demo.sh                June 9 scripted demo
 .github/workflows/ci.yml           PR CI: make up + make verify in kind
 HONEST_GAPS.md                     everything currently stubbed and why
@@ -168,15 +173,21 @@ Short version:
   runtime pull credential with `bootstrap/configure-ghcr-pull-auth.py`; without
   it, killinchu stays blocked and five-organ acceptance fails closed. CI derives
   the same runtime-only credential from its read-only `GITHUB_TOKEN`. The other
-  4 organs pull anonymously.
+  4 organs pull anonymously. Killinchu is pinned to the keyless-signed,
+  SLSA-attested protected-main digest; the unsigned legacy mutable tag is not
+  accepted by this environment.
 - **DSSE receipt verification is REAL** — `verify/dsse_verify.py`
   (`make verify-dsse`) verifies ECDSA-P256-SHA256 envelopes against
   `keys/cosign.pub`, emitting honest verdicts (`verified` / `unsigned-honest` /
   `FAIL`). The in-collector OTTL processor only promotes the attribute and points
   at this verify hook (OTTL cannot run crypto in-path).
-- **SLSA L1 is honest; L2 verified build-provenance is on the roadmap.**
-  `slsa-verifier` runs against every organ; it enforces only where a provenance
-  attestation is present, and the gate reports the absence honestly otherwise.
+- **The five-service trace is not operational yet.** The published A11oy image
+  has no root fan-out route, Amaru cannot emit the required OTLP span, and Rosie's
+  health path is not instrumented. `make trace` remains fail-closed until signed,
+  immutable protected-source runtime successors provide those exact capabilities.
+- **SLSA L1 is honest; stronger provenance is enforced only where independently
+  accepted.** Every image is digest-pinned and identity-checked. Historical or
+  unavailable source repositories remain explicitly labeled as such.
 
 No secrets are committed to this repo. See `HONEST_GAPS.md` § Secrets.
 

@@ -11,14 +11,37 @@ from __future__ import annotations
 
 import os
 
-ORGANS = ["a11oy", "sentra", "amaru", "killinchu", "rosie"]
 NS = "szl"
-# Pinned to the published + cosign-signed organ tag (matches manifests/organs/*.yaml
-# and STATUS.md: ghcr.io/szl-holdings/<organ>:uds-v0.2.0, keyless Fulcio/Rekor signed).
-# NOT `:latest` — a floating tag breaks the
-# SLSA L1 (honest) / image-pin doctrine and is non-verifiable. Override only for local
-# dev:  ORGAN_IMAGE_TAG=latest python3 scripts/gen_organ_deployments.py
-IMAGE_TAG = os.environ.get("ORGAN_IMAGE_TAG", "uds-v0.2.0")
+# Every organ is selected by a reviewed immutable digest. There is deliberately
+# no environment-variable tag override: governed generation must not be retagged.
+ORGAN_SPECS = {
+    "a11oy": {
+        "image": "ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526",
+        "container_port": 7860,
+        "private": False,
+    },
+    "sentra": {
+        "image": "ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639",
+        "container_port": 7860,
+        "private": False,
+    },
+    "amaru": {
+        "image": "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff",
+        "container_port": 7860,
+        "private": False,
+    },
+    "killinchu": {
+        "image": "ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9",
+        "container_port": 7860,
+        "private": True,
+    },
+    "rosie": {
+        "image": "ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848",
+        "container_port": 7860,
+        "private": False,
+    },
+}
+ORGANS = tuple(ORGAN_SPECS)
 OUT = os.path.join(os.path.dirname(__file__), "..", "deploy", "organs")
 
 TEMPLATE = """# SPDX-License-Identifier: Apache-2.0
@@ -46,13 +69,14 @@ spec:
         app.kubernetes.io/name: {organ}
         app.kubernetes.io/part-of: szl-organs
     spec:
+      automountServiceAccountToken: false
 {runtime_auth}      containers:
         - name: {organ}
-          image: ghcr.io/szl-holdings/{organ}:{image_tag}
+          image: {image}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {container_port}
           env:
             # ---- Cosign DSSE signing key (runtime secret) -------------------
             # Canonical name read first by szl_dsse._load_private_key().
@@ -84,19 +108,22 @@ def main() -> None:
     os.makedirs(OUT, exist_ok=True)
     for organ in ORGANS:
         path = os.path.join(OUT, f"{organ}-deployment.yaml")
+        spec = ORGAN_SPECS[organ]
+        image = spec["image"]
+        container_port = spec["container_port"]
         runtime_auth = ""
-        if organ == "killinchu":
+        if spec["private"]:
             runtime_auth = """      # Runtime registry auth is restricted to the one private-image pod.
-      automountServiceAccountToken: false
       imagePullSecrets:
         - name: szl-ghcr-pull
 """
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(
                 TEMPLATE.format(
                     organ=organ,
                     ns=NS,
-                    image_tag=IMAGE_TAG,
+                    image=image,
+                    container_port=container_port,
                     runtime_auth=runtime_auth,
                 )
             )

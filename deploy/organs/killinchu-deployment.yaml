@@ -23,17 +23,17 @@ spec:
         app.kubernetes.io/name: killinchu
         app.kubernetes.io/part-of: szl-organs
     spec:
-      # Runtime registry auth is restricted to the one private-image pod.
       automountServiceAccountToken: false
+      # Runtime registry auth is restricted to the one private-image pod.
       imagePullSecrets:
         - name: szl-ghcr-pull
       containers:
         - name: killinchu
-          image: ghcr.io/szl-holdings/killinchu:uds-v0.2.0
+          image: ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 7860
           env:
             # ---- Cosign DSSE signing key (runtime secret) -------------------
             # Canonical name read first by szl_dsse._load_private_key().

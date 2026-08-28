@@ -8,11 +8,18 @@
 
 ## 1. killinchu image is PRIVATE on GHCR
 
-- `ghcr.io/szl-holdings/killinchu:uds-v0.2.0` is **pushed and cosign-signed**
-  (tlog `1705054225`) but the GHCR package visibility is **private**.
-- **Effect:** an unauthenticated local cluster cannot start killinchu. `make verify`
-  reports killinchu as `KNOWN-GAP` when the host is unauthenticated, and the
-  five-organ acceptance gate fails closed rather than presenting 4/5 as success.
+- The legacy mutable `ghcr.io/szl-holdings/killinchu:uds-v0.2.0` pointer does
+  **not** carry the required legacy-discoverable signature and is no longer consumed.
+- Protected Killinchu main `cc49a0cc5fa03405fc7894c64040e013911a63bc`
+  produced immutable digest
+  `sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9`
+  in workflow run `32365110327`. That run keyless-signed the digest, verified the
+  exact protected workflow identity and SLSA provenance, published legacy Cosign
+  signature and attestation objects, and read back the immutable tag. This
+  deployment pins that digest. The GHCR package remains private.
+- **Effect:** an unauthenticated local cluster cannot start killinchu. Both
+  `make verify` and the five-organ acceptance gate fail closed; neither presents
+  4/5 as success or downgrades a registry, certificate, or signature error.
 - **We do NOT fake this green.** No assumption is made that killinchu is public.
 - **Authenticated path:** pass a `read:packages` credential on standard input to
   `bootstrap/configure-ghcr-pull-auth.py`. The helper creates a fresh, immutable
@@ -25,10 +32,20 @@
   access; a missing grant or credential is a hard failure, never an anonymous pass.
 - Making the package public remains an alternative founder action:
   https://github.com/orgs/szl-holdings/packages/container/killinchu/settings.
-- The other 4 organs (`a11oy`, `sentra`, `amaru`, `rosie`) pull anonymously today,
-  contingent on their `uds-v0.2.0` images being public. As of the last build ledger,
-  `a11oy`, `sentra`, `amaru` had a separate org-level GHCR push block; if their
-  `uds-v0.2.0` tags are not yet public they will surface the same `KNOWN-GAP`.
+- The other four organs pull anonymously today, but they are also selected by
+  immutable digest. Their signed source/run bindings are recorded below; no mutable
+  `uds-v0.2.0` or `latest` selector participates in acceptance.
+
+| Organ | Immutable digest | Signed source | Publisher run | Source status |
+|---|---|---|---|---|
+| a11oy | `c285293c...d21526` | `a29f43251e63aa20469413bc006896be803a289d` | `27237732091` | historical; protected main has advanced |
+| sentra | `60a0efc1...3639` | `84c24336f7ce00aeda454c213c08da38f53e4c45` | `27040271560` | historical; source repository unavailable |
+| amaru | `53301e26...89ff` | `324c3d60c2e2195e89cfefb28613ff26d94e67f8` | `27040273859` | historical; source repository unavailable |
+| killinchu | `1620a0f3...d2c9` | `cc49a0cc5fa03405fc7894c64040e013911a63bc` | `32365110327` | exact protected main at publication |
+| rosie | `1984a15f...2848` | `97be4e52695e8141036b1c4269a4722148852d4a` | `27043537785` | historical tag; source repository unavailable |
+
+A signature proves publisher identity and subject digest. It does not make an
+unavailable historical source repository current or reproducible.
 
 ## 2. DSSE receipt verification is REAL (was a collector stub)
 
@@ -68,25 +85,34 @@
 
 - Doctrine target is the published bundle
   `oci://ghcr.io/szl-holdings/szl-uds-bundle:uds-v0.2.0`.
-- For a fast local dev loop, organs pull their **individual** images
-  `ghcr.io/szl-holdings/<organ>:uds-v0.2.0` (faster than rehydrating a full Zarf
-  bundle into kind every `make up`). Bundle-based deploy (`zarf package deploy`)
-  is a documented follow-up, not wired into `make up` today.
+- For a fast local dev loop, organs pull the five **individual digest-pinned**
+  images enumerated above (faster than rehydrating a full Zarf bundle into kind
+  every `make up`). The bundle tag is a distribution reference, not an accepted
+  runtime image selector. Bundle-based deploy (`zarf package deploy`) remains a
+  documented follow-up and is not wired into `make up` today.
 
 ## 5. Waypoint L7 route is minimal
 
-- `manifests/mesh/waypoint.yaml` declares the ambient waypoint and a single
-  pass-through `HTTPRoute` that preserves `traceparent`. It does not yet encode
-  the full a11oy→sentra→amaru→killinchu→rosie call graph as explicit routes —
-  organs do their own downstream fan-out. The waypoint guarantees L7 + traceparent
-  preservation; the topology is owned by the organs.
+- `manifests/mesh/waypoint.yaml` declares the ambient waypoint and a minimal
+  pass-through `HTTPRoute`. That configuration alone does not prove application
+  fan-out, W3C context continuation, OTLP export, or five distinct Jaeger service
+  identities. Those properties require runtime code in each immutable organ image.
 
-## 6. Organ `/route?fanout=...` endpoint assumption
+## 6. Five-service fan-out and OTLP trace are blocked, fail-closed
 
-- `verify/run-acceptance.sh` POSTs to a `/route?fanout=...` endpoint on a11oy to
-  trigger the cross-organ call. If the deployed organ build does not expose that
-  endpoint yet, the script falls back to `/healthz` and the trace will show only
-  the organs that actually got called. This is reported honestly, not hidden.
+- `verify/run-acceptance.sh` requires
+  `GET /route?fanout=sentra,amaru,killinchu,rosie`, then requires one fresh Jaeger
+  span graph connecting all five services to the exact injected root span. It never
+  accepts an unconnected service-name bag or substitutes a health response.
+- Neither the digest-pinned A11oy runtime nor the currently published protected-main
+  A11oy runtime implements that root fan-out contract. Sentra documents only
+  in-process propagation. Amaru explicitly disables generic OpenTelemetry and
+  cannot emit the required OTLP span. Rosie's root health handler is not instrumented.
+- Therefore health readiness can be repaired and verified, but five-service trace
+  acceptance remains intentionally red. The unblock is protected-source organ
+  successors that implement traceparent-aware inbound middleware, real downstream
+  fan-out, OTLP export, and an exact machine-validated route acknowledgement,
+  followed by signed/attested immutable image publication and digest relock here.
 
 ## Secrets — what is and is NOT in this repo
 
