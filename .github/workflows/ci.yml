@@ -31,12 +31,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest PyYAML "git+https://github.com/szl-holdings/szl-receipt.git@v0.1.0"
-      - name: Run DSSE verifier tests
+      - name: Run verifier and router acceptance tests
         run: >-
           pytest -q
           verify/test_dsse_verify.py
           verify/test_run_acceptance_contract.py
           verify/test_registry_auth_contract.py
+          verify/test_router_acceptance.py
 
   build-env:
     runs-on: ubuntu-latest

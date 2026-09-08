@@ -28,6 +28,12 @@ Follow the [authenticated 10-minute quickstart](#10-minute-quickstart). The
 killinchu image is private, so a real five-organ run requires read-only GHCR
 access; the setup does not pretend an anonymous 4/5 deployment is complete.
 
+For the separate canonical router service, the [router acceptance guide](docs/router-acceptance.md)
+checks an expected GitHub revision, configuration admission and model discovery.
+Inference requires an explicit `--infer` invocation and a caller token supplied
+through the environment; a read-only pass never establishes provider inference
+or five-organ runtime acceptance.
+
 ## 🔍 How it works
 
 In two sentences: this component is part of SZL's governed-AI mesh — it enforces policy and emits signed, replayable audit receipts so every AI action can be verified after the fact. The full mathematical foundation, formal proofs, and protocol details are documented below and in the [technical docs](https://szl-holdings.github.io/docs-site).
