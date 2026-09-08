@@ -17,7 +17,7 @@ export PATH     := $(BIN):$(PATH)
 
 ORGANS := a11oy sentra amaru killinchu rosie
 
-.PHONY: help up verify verify-dsse trace down demo istioctl cluster mesh otel organs clean status cosign-key
+.PHONY: help up verify verify-dsse router-acceptance test-router-acceptance trace down demo istioctl cluster mesh otel organs clean status cosign-key
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -87,6 +87,13 @@ verify-dsse: ## Verify a DSSE receipt envelope for real (ECDSA-P256; honest verd
 	@if [ -z "$(RECEIPT)" ]; then \
 	  echo "usage: make verify-dsse RECEIPT=path/to/receipt.json [PUBKEY=keys/cosign.pub]"; exit 2; fi
 	@python3 verify/dsse_verify.py "$(RECEIPT)" --pubkey "$(or $(PUBKEY),keys/cosign.pub)"
+
+router-acceptance: ## Read router source, configuration admission and model catalog (no inference)
+	@python3 verify/router_acceptance.py --target "$(ROUTER_URL)" \
+	  --expected-revision "$(ROUTER_REVISION)" --model "$(ROUTER_MODEL)"
+
+test-router-acceptance: ## Exercise router acceptance against local HTTP fixtures only
+	@python3 -m pytest -q verify/test_router_acceptance.py
 
 trace: ## Send a request and dump the cross-organ traceparent trace tree
 	@NAMESPACE=$(NAMESPACE) bash verify/run-acceptance.sh
