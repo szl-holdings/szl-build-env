@@ -1,0 +1,4 @@
+# Runtime dependencies. Resolved by SZL frontier v4.1 20260928-221533; required CI decides merge.
+cryptography==50.0.1
+pyyaml==6.0.3
+szl-receipts @ git+https://github.com/szl-holdings/szl-platform@09b8749e0439cea888a18482bf5ce81db9473ce0#subdirectory=packages/szl-receipts
