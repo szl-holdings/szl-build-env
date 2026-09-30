@@ -110,6 +110,7 @@ jobs:
       - name: Run fail-closed five-organ acceptance
         env:
           ACCEPTANCE_EVIDENCE_PATH: ${{ runner.temp }}/szl-build-env-acceptance.json
+          ACCEPTANCE_COLLECT_LOG_SUMMARIES: "1"
         run: ./verify/run-acceptance.sh
 
       - name: Upload five-organ acceptance evidence
@@ -117,13 +118,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: five-organ-acceptance-${{ github.sha }}
-          path: ${{ runner.temp }}/szl-build-env-acceptance.json
+          path: |
+            ${{ runner.temp }}/szl-build-env-acceptance.json
+            ${{ runner.temp }}/szl-build-env-acceptance.json.diagnostics.json
           if-no-files-found: error
           retention-days: 30
 
-      - name: Dump diagnostics on failure
+      # Raw pod descriptions/logs can contain credentials or application payloads.
+      # The acceptance finalizer retains only bounded allowlisted summaries.
+      - name: Report diagnostic artifact on failure
         if: failure()
         run: |
-          kubectl get pods -A -o wide || true
-          kubectl -n szl describe pods || true
-          kubectl -n istio-system get pods || true
+          echo "See the five-organ-acceptance artifact for sanitized HTTP and component-log summaries."

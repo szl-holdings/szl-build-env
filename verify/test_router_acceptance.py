@@ -346,8 +346,17 @@ def test_address_attempts_share_one_deadline(monkeypatch):
     assert len(attempts) <= 2 and attempts[-1] < attempts[0]
 
 
-def test_stalled_tls_handshake_shares_request_deadline():
+def test_stalled_tls_handshake_shares_request_deadline(monkeypatch):
     # A real TCP listener accepts the connection but never answers ClientHello.
+    contexts = []
+    create_context = verifier.ssl.create_default_context
+
+    def observed_context():
+        context = create_context()
+        contexts.append(context)
+        return context
+
+    monkeypatch.setattr(verifier.ssl, "create_default_context", observed_context)
     listener = verifier.socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
@@ -366,6 +375,10 @@ def test_stalled_tls_handshake_shares_request_deadline():
         with pytest.raises(verifier.Failure, match="REQUEST_TIMEOUT"):
             verifier.fetch(parts, "/api/source", 0.1)
         assert time.monotonic() - started < 0.4
+        assert len(contexts) == 1
+        assert contexts[0].minimum_version >= verifier.ssl.TLSVersion.TLSv1_2
+        assert contexts[0].check_hostname
+        assert contexts[0].verify_mode == verifier.ssl.CERT_REQUIRED
     finally:
         stop.set()
         listener.close()

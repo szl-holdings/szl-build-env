@@ -62,8 +62,8 @@ spec:
           ports:
             - { containerPort: 7860, name: http }
           env:
-            # OTLP export so this organ's spans join the cross-organ trace
-            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4318" }
+            # The pinned source's vsp_otel middleware uses OTLP/gRPC, not HTTP.
+            - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4317" }
             - { name: OTEL_SERVICE_NAME,           value: "a11oy" }
             - { name: OTEL_TRACES_EXPORTER,        value: "otlp" }
             - { name: SZL_ORGAN,                   value: "a11oy" }

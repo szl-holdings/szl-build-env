@@ -5,6 +5,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import re
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -18,6 +20,19 @@ VALID_ROOT_SPAN_ID = "ffffffffffffffff"
 VALID_SEED_EPOCH_US = 1_800_000_000_000_000
 VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
+
+
+def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
+    # a11oy@a29f43251e63aa20469413bc006896be803a289d imports
+    # opentelemetry.exporter.otlp.proto.grpc in vsp_otel/middleware.py.
+    # Its endpoint must therefore select the collector's gRPC listener.
+    manifest = (ROOT / "manifests/organs/a11oy.yaml").read_text(encoding="utf-8")
+    collector = (ROOT / "manifests/otel/collector.yaml").read_text(encoding="utf-8")
+    endpoints = re.findall(r'OTEL_EXPORTER_OTLP_ENDPOINT, value: "([^"]+)"', manifest)
+    assert len(endpoints) == 1
+    grpc = re.search(r'grpc:\s+endpoint: 0\.0\.0\.0:(\d+)', collector)
+    assert grpc is not None
+    assert urlsplit(endpoints[0]).port == int(grpc.group(1))
 
 
 def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
@@ -518,6 +533,146 @@ def test_script_avoids_bash4_and_gnu_coreutils_only_primitives():
     assert "status --porcelain=v1 --untracked-files=all" in source
     assert "ACCEPTANCE_LOCAL_RUN_NONCE" not in source
     assert '"git", "cat-file", "commit", "HEAD"' in source
+
+
+def _diagnostic_python(marker):
+    return SCRIPT.read_text(encoding="utf-8").split("<<'" + marker + "'\n", 1)[1].split("\n" + marker, 1)[0]
+
+
+@pytest.mark.parametrize(("exit_code", "status", "state", "transport"), [
+    (0, "404", "absent", "ok"), (7, "000", "unreachable", "connection_failed"),
+    (28, "000", "unreachable", "timeout"), (0, "200", "available", "ok"),
+    (0, "503", "http_error", "ok"), (63, "200", "response_too_large", "response_too_large"),
+])
+def test_http_diagnostics_classify_without_retaining_payload(tmp_path, exit_code, status, state, transport):
+    body = tmp_path / "body"
+    body.write_bytes(b'{"Authorization":"Bearer PRIVATE_TOKEN", "person":"PRIVATE_PERSON"}')
+    output = tmp_path / "http.json"
+    result = subprocess.run([sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+                             str(output), "jaeger", str(exit_code), status, str(body)],
+                            capture_output=True, text=True, check=True, timeout=5)
+    encoded = output.read_text()
+    record = json.loads(encoded)["jaeger"]
+    assert result.stdout.strip() == state
+    assert record["transport"] == transport
+    assert "PRIVATE" not in encoded + result.stdout + result.stderr
+    assert "Authorization" not in encoded
+    assert len(encoded) < 1024
+
+
+@pytest.mark.parametrize("outcome", ["success", "error", "timeout"])
+def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monkeypatch, outcome):
+    from types import SimpleNamespace
+    calls = []
+
+    def fake_run(command, **kw):
+        calls.append(command)
+        assert "--limit-bytes=32768" in command and "--tail=100" in command
+        assert kw["timeout"] == 7 and kw["stderr"] == subprocess.DEVNULL
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(command, 7, output=b"PRIVATE_TOKEN")
+        return SimpleNamespace(returncode=0 if outcome == "success" else 1,
+                               stdout=b"error connection refused PRIVATE_TOKEN " * 2000)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    output = tmp_path / "diagnostics.json"
+    (tmp_path / "jaeger-port-forward.log").write_bytes(b"connection refused PRIVATE_TOKEN " * 200)
+    monkeypatch.setattr(sys, "argv", ["diagnostics", str(tmp_path / "missing"), str(output), "szl", "1"])
+    exec(compile(_diagnostic_python("COMPONENT_DIAGNOSTICS_PY"), "diagnostics", "exec"), {})
+    encoded = output.read_text()
+    assert len(calls) == 2 and len(encoded) < 8192
+    assert "PRIVATE_TOKEN" not in encoded
+    forward = json.loads(encoded)["port_forward"]["jaeger"]
+    assert forward["bytes_capped"] == 4096 and forward["limit_reached"]
+    assert forward["signals"]["connection_refused"] > 0
+    for item in json.loads(encoded)["components"].values():
+        if outcome == "success":
+            assert item["bytes_capped"] == 32768 and item["limit_reached"]
+            assert item["signals"]["connection_refused"] > 0
+        else:
+            assert item == {"collection": "timeout" if outcome == "timeout" else "unavailable"}
+
+
+@pytest.mark.parametrize(("scenario", "failure"), [
+    ("404", "trace_not_found_before_deadline"),
+    ("refused", "jaeger_unreachable_before_deadline"),
+    ("timeout", "jaeger_unreachable_before_deadline"),
+    ("malformed_ack", "trace_seed_failed"),
+    ("html_ack", "trace_seed_failed"),
+    ("oversized_ack", "trace_seed_failed"),
+    ("oversized_trace", "jaeger_response_too_large"),
+    ("success", None),
+])
+def test_trace_stage_synthetic_http_outcomes_remain_fail_closed(tmp_path, scenario, failure):
+    bash = _usable_bash()
+    if bash is None:
+        pytest.skip("a runnable bash is required for the synthetic trace-stage test")
+    source = SCRIPT.read_text(encoding="utf-8")
+    traceparent = f"00-{VALID_TRACE_ID}-{VALID_ROOT_SPAN_ID}-01"
+    ack = {"accepted": True, "fanout": VALID_FANOUT,
+           "schema": "szl.build-env.fanout-ack/v1", "traceparent": traceparent}
+    route_body = {"malformed_ack": b'{"PRIVATE_PERSON":',
+                  "html_ack": b"<html>PRIVATE_PERSON PRIVATE_TOKEN</html>"}.get(scenario, json.dumps(ack).encode())
+    (tmp_path / "route-fixture").write_bytes(route_body)
+    (tmp_path / "trace-fixture").write_text(json.dumps(_valid_jaeger_payload()))
+    functions = source[source.index("record_http_observation() {"):source.index("emit_diagnostics() {")]
+    functions += source[source.index("parse_trace_response() {"):source.index('require_positive_integer "readiness_timeout_seconds"')]
+    functions += source[source.index("record_failure() {"):source.index("epoch_milliseconds() {")]
+    stage = source[source.index('  echo "==> 4.'):source.index('else\n  trace_failure="not_run_deployments_unready"')]
+    final = source[source.index("if (( gate_failed == 0 )); then"):]
+    # Fake transport only: execute the production stage, classifiers and strict validators.
+    driver = f"""
+set -euo pipefail
+export PATH="/usr/bin:$PATH"
+python3() {{ '{Path(sys.executable).as_posix()}' "$@"; }}
+STATE_DIR=.
+SCRIPT_DIR='{(ROOT / 'verify').as_posix()}'
+HTTP_DIAGNOSTICS_PATH=./http.json
+TRACE_RESPONSE_PATH=./trace-response.json
+TRACE_OBSERVATION_PATH=./trace-observation.json
+EXPECTED_SERVICES=a11oy,sentra,amaru,killinchu,rosie
+trace_id={VALID_TRACE_ID}
+span_id={VALID_ROOT_SPAN_ID}
+traceparent={traceparent}
+HTTP_TIMEOUT_SECONDS=1
+TRACE_TIMEOUT_SECONDS=1
+TRACE_POLL_SECONDS=1
+gate_failed=0
+overall_failure=''
+trace_failure=not_run
+start_port_forward() {{ PF_LOCAL_PORT=12345; }}
+stop_port_forward() {{ :; }}
+epoch_milliseconds() {{ echo {VALID_SEED_EPOCH_US // 1000}; }}
+remaining_milliseconds() {{ if [[ -f polled ]]; then echo 0; else touch polled; echo 100; fi; }}
+milliseconds_as_seconds() {{ echo 0.1; }}
+sleep_milliseconds() {{ :; }}
+curl() {{
+  echo 'Authorization: Bearer PRIVATE_TOKEN' >&2
+  if [[ "$*" == *'/route?'* ]]; then
+    if [[ '{scenario}' == oversized_ack ]]; then printf 200; return 63; fi
+    cp route-fixture route.body; printf 200; return 0
+  fi
+  case '{scenario}' in
+    404) printf '%s' '{{"error":"PRIVATE_PERSON"}}' > trace-response.json; printf 404 ;;
+    refused) printf 000; return 7 ;;
+    timeout) printf 000; return 28 ;;
+    oversized_trace) printf 200; return 63 ;;
+    *) cp trace-fixture trace-response.json; printf 200 ;;
+  esac
+}}
+""" + functions + stage + final
+    (tmp_path / "driver.sh").write_text(driver, encoding="utf-8", newline="\n")
+    result = subprocess.run([bash, "driver.sh"], cwd=tmp_path, capture_output=True, text=True, timeout=15)
+    assert result.returncode == (1 if failure else 0), result.stdout + result.stderr
+    if failure:
+        assert failure in result.stdout + result.stderr
+    encoded = (tmp_path / "http.json").read_text()
+    assert "PRIVATE" not in encoded + result.stdout + result.stderr
+    if scenario == "404":
+        assert json.loads(encoded)["jaeger"]["state"] == "absent"
+    if scenario in {"oversized_ack", "oversized_trace"}:
+        phase = "route" if scenario == "oversized_ack" else "jaeger"
+        assert json.loads(encoded)[phase]["state"] == "response_too_large"
     assert "git show --no-patch --format=%P" not in source
     assert '"$source_repository" != "szl-holdings/szl-build-env"' in source
     assert '"$git_parents" != "${base_sha} ${candidate_sha}"' in source
