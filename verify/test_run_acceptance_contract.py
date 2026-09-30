@@ -542,7 +542,7 @@ def _diagnostic_python(marker):
 @pytest.mark.parametrize(("exit_code", "status", "state", "transport"), [
     (0, "404", "absent", "ok"), (7, "000", "unreachable", "connection_failed"),
     (28, "000", "unreachable", "timeout"), (0, "200", "available", "ok"),
-    (0, "503", "http_error", "ok"), (63, "200", "unreachable", "response_too_large"),
+    (0, "503", "http_error", "ok"), (63, "200", "response_too_large", "response_too_large"),
 ])
 def test_http_diagnostics_classify_without_retaining_payload(tmp_path, exit_code, status, state, transport):
     body = tmp_path / "body"
@@ -599,6 +599,8 @@ def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monke
     ("timeout", "jaeger_unreachable_before_deadline"),
     ("malformed_ack", "trace_seed_failed"),
     ("html_ack", "trace_seed_failed"),
+    ("oversized_ack", "trace_seed_failed"),
+    ("oversized_trace", "jaeger_response_too_large"),
     ("success", None),
 ])
 def test_trace_stage_synthetic_http_outcomes_remain_fail_closed(tmp_path, scenario, failure):
@@ -647,12 +649,14 @@ sleep_milliseconds() {{ :; }}
 curl() {{
   echo 'Authorization: Bearer PRIVATE_TOKEN' >&2
   if [[ "$*" == *'/route?'* ]]; then
+    if [[ '{scenario}' == oversized_ack ]]; then printf 200; return 63; fi
     cp route-fixture route.body; printf 200; return 0
   fi
   case '{scenario}' in
     404) printf '%s' '{{"error":"PRIVATE_PERSON"}}' > trace-response.json; printf 404 ;;
     refused) printf 000; return 7 ;;
     timeout) printf 000; return 28 ;;
+    oversized_trace) printf 200; return 63 ;;
     *) cp trace-fixture trace-response.json; printf 200 ;;
   esac
 }}
@@ -666,6 +670,9 @@ curl() {{
     assert "PRIVATE" not in encoded + result.stdout + result.stderr
     if scenario == "404":
         assert json.loads(encoded)["jaeger"]["state"] == "absent"
+    if scenario in {"oversized_ack", "oversized_trace"}:
+        phase = "route" if scenario == "oversized_ack" else "jaeger"
+        assert json.loads(encoded)[phase]["state"] == "response_too_large"
     assert "git show --no-patch --format=%P" not in source
     assert '"$source_repository" != "szl-holdings/szl-build-env"' in source
     assert '"$git_parents" != "${base_sha} ${candidate_sha}"' in source

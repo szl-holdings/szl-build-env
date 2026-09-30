@@ -111,7 +111,7 @@ exit_code = int(raw_exit)
 status = int(raw_status) if raw_status.isascii() and raw_status.isdigit() else 0
 status = status if 100 <= status <= 599 else None
 transport = {0: "ok", 7: "connection_failed", 28: "timeout", 63: "response_too_large"}.get(exit_code, "curl_error")
-state = ("unreachable" if exit_code else
+state = ("response_too_large" if exit_code == 63 else "unreachable" if exit_code else
          "available" if status == 200 else
          "absent" if phase == "jaeger" and status == 404 else "http_error")
 body = Path(body_path)
@@ -859,8 +859,8 @@ if (( all_deployments_ready != 0 )); then
       --max-time "$HTTP_TIMEOUT_SECONDS" -H "traceparent: ${traceparent}" \
       'http://127.0.0.1:18090/route?fanout=sentra,amaru,killinchu,rosie' 2>/dev/null)" || route_curl_status=$?
     record_http_observation route "$route_curl_status" "$route_code" "${STATE_DIR}/route.body" >/dev/null
+    trace_seed_http_code="$route_code"
     if (( route_curl_status == 0 )); then
-      trace_seed_http_code="$route_code"
       if [[ "$route_code" != "200" ]]; then
         trace_failure="seed_request_http_${route_code}"
         record_failure "trace_seed_failed"
@@ -877,10 +877,14 @@ if (( all_deployments_ready != 0 )); then
         echo "   [FAIL] trace seed response was not an exact governed acknowledgement" >&2
       fi
     else
-      trace_seed_http_code=""
-      trace_failure="seed_request_unreachable"
       record_failure "trace_seed_failed"
-      echo "   [FAIL] trace seed route was unreachable" >&2
+      if (( route_curl_status == 63 )); then
+        trace_failure="seed_response_too_large"
+        echo "   [FAIL] trace seed response exceeded the size limit" >&2
+      else
+        trace_failure="seed_request_unreachable"
+        echo "   [FAIL] trace seed route was unreachable" >&2
+      fi
     fi
     stop_port_forward
   else
@@ -904,6 +908,7 @@ if (( all_deployments_ready != 0 )); then
           absent) trace_failure="trace_not_found_before_deadline" ;;
           incomplete) trace_failure="trace_incomplete_before_deadline" ;;
           http_error) trace_failure="jaeger_http_error_before_deadline" ;;
+          response_too_large) trace_failure="jaeger_response_too_large" ;;
           *) trace_failure="jaeger_unreachable_before_deadline" ;;
         esac
         record_failure "$trace_failure"
@@ -953,7 +958,6 @@ if (( all_deployments_ready != 0 )); then
           trace_failure="jaeger_http_${jaeger_code}"
         fi
       else
-        last_trace_state="unreachable"
         trace_failure="jaeger_unreachable"
       fi
 
@@ -963,6 +967,7 @@ if (( all_deployments_ready != 0 )); then
           absent) trace_failure="trace_not_found_before_deadline" ;;
           incomplete) trace_failure="trace_incomplete_before_deadline" ;;
           http_error) trace_failure="jaeger_http_error_before_deadline" ;;
+          response_too_large) trace_failure="jaeger_response_too_large" ;;
           *) trace_failure="jaeger_unreachable_before_deadline" ;;
         esac
         record_failure "$trace_failure"
