@@ -5,6 +5,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import re
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -18,6 +20,19 @@ VALID_ROOT_SPAN_ID = "ffffffffffffffff"
 VALID_SEED_EPOCH_US = 1_800_000_000_000_000
 VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
+
+
+def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
+    # a11oy@a29f43251e63aa20469413bc006896be803a289d imports
+    # opentelemetry.exporter.otlp.proto.grpc in vsp_otel/middleware.py.
+    # Its endpoint must therefore select the collector's gRPC listener.
+    manifest = (ROOT / "manifests/organs/a11oy.yaml").read_text(encoding="utf-8")
+    collector = (ROOT / "manifests/otel/collector.yaml").read_text(encoding="utf-8")
+    endpoints = re.findall(r'OTEL_EXPORTER_OTLP_ENDPOINT, value: "([^"]+)"', manifest)
+    assert len(endpoints) == 1
+    grpc = re.search(r'grpc:\s+endpoint: 0\.0\.0\.0:(\d+)', collector)
+    assert grpc is not None
+    assert urlsplit(endpoints[0]).port == int(grpc.group(1))
 
 
 def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
