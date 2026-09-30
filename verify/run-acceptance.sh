@@ -18,6 +18,7 @@ EXPECTED_SERVICES="a11oy,sentra,amaru,killinchu,rosie"
 STATE_DIR="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/szl-acceptance.XXXXXX")"
 TRACE_RESPONSE_PATH="${STATE_DIR}/trace-response.json"
 TRACE_OBSERVATION_PATH="${STATE_DIR}/trace-observation.json"
+HTTP_DIAGNOSTICS_PATH="${STATE_DIR}/http-diagnostics.json"
 
 deployment_exists=(false false false false false)
 deployment_ready=(false false false false false)
@@ -94,6 +95,116 @@ cleanup_port_forward() {
     wait "$PF_PID" >/dev/null 2>&1 || true
     PF_PID=""
   fi
+}
+
+# Diagnostics deliberately retain no response text, headers, URLs or log lines.
+# The printed state is transport classification only, never an acceptance verdict.
+record_http_observation() {
+  python3 - "$HTTP_DIAGNOSTICS_PATH" "$@" <<'HTTP_DIAGNOSTICS_PY'
+import json
+from pathlib import Path
+import sys
+
+destination, phase, raw_exit, raw_status, body_path = sys.argv[1:]
+assert phase in {"route", "jaeger"}
+exit_code = int(raw_exit)
+status = int(raw_status) if raw_status.isascii() and raw_status.isdigit() else 0
+status = status if 100 <= status <= 599 else None
+transport = {0: "ok", 7: "connection_failed", 28: "timeout", 63: "response_too_large"}.get(exit_code, "curl_error")
+state = ("unreachable" if exit_code else
+         "available" if status == 200 else
+         "absent" if phase == "jaeger" and status == 404 else "http_error")
+body = Path(body_path)
+size = body.stat().st_size if body.is_file() else 0
+sample = b""
+if body.is_file():
+    with body.open("rb") as stream:
+        sample = stream.read(4096)
+kind = "empty"
+if sample:
+    prefix = sample.lstrip().lower()
+    kind = "html_like" if prefix.startswith((b"<!doctype html", b"<html")) else "other"
+    if prefix.startswith((b"{", b"[")):
+        kind = "json_like"
+    if size <= 4096:
+        try:
+            json.loads(sample)
+            kind = "json"
+        except (ValueError, UnicodeError, RecursionError):
+            pass
+path = Path(destination)
+observations = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+observations[phase] = {
+    "attempts": min(observations.get(phase, {}).get("attempts", 0) + 1, 1000000),
+    "http_status": status,
+    "curl_exit_code": exit_code if 0 <= exit_code <= 255 else None,
+    "transport": transport,
+    "state": state,
+    "body_bytes_capped": min(size, 8 * 1024 * 1024),
+    "body_format": kind,
+    "sample_truncated": size > 4096,
+    "response_limit_exceeded": exit_code == 63,
+}
+path.write_text(json.dumps(observations, sort_keys=True), encoding="utf-8")
+print(state)
+HTTP_DIAGNOSTICS_PY
+}
+
+emit_diagnostics() {
+  python3 - "$HTTP_DIAGNOSTICS_PATH" "${EVIDENCE_PATH}.diagnostics.json" \
+    "$NAMESPACE" "${ACCEPTANCE_COLLECT_LOG_SUMMARIES:-0}" <<'COMPONENT_DIAGNOSTICS_PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+source, destination, namespace, collect = sys.argv[1:]
+http_path = Path(source)
+http = json.loads(http_path.read_text(encoding="utf-8")) if http_path.is_file() else {}
+port_forward = {}
+for phase in ("route", "jaeger"):
+    path = http_path.parent / (phase + "-port-forward.log")
+    if path.is_file():
+        with path.open("rb") as stream:
+            raw = stream.read(4096).lower()
+        port_forward[phase] = {
+            "bytes_capped": len(raw), "limit_reached": len(raw) == 4096,
+            "signals": {key: raw.count(marker) for key, marker in (
+                ("forwarding_announced", b"forwarding from"),
+                ("connection_refused", b"connection refused"),
+                ("address_in_use", b"address already in use"),
+                ("upgrade_error", b"error upgrading connection"))}}
+components = {}
+if collect == "1":
+    for name in ("jaeger", "opentelemetry-collector"):
+        summary = {"collection": "unavailable"}
+        try:
+            result = subprocess.run(
+                ["kubectl", "--request-timeout=5s", "-n", namespace, "logs", "deployment/" + name,
+                 "--tail=100", "--limit-bytes=32768", "--since=10m"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=7, check=False)
+            if result.returncode == 0:
+                raw = result.stdout[:32768].lower()
+                # Allowlisted counts only: never retain source lines or arbitrary fields.
+                summary = {"collection": "collected", "bytes_capped": len(raw),
+                           "limit_reached": len(raw) == 32768,
+                           "signals": {key: raw.count(marker) for key, marker in (
+                               ("error_mentions", b"error"), ("warning_mentions", b"warn"),
+                               ("connection_refused", b"connection refused"),
+                               ("deadline_exceeded", b"deadline exceeded"),
+                               ("export_failure", b"exporting failed"),
+                               ("trace_not_found", b"trace not found"))}}
+        except subprocess.TimeoutExpired:
+            summary = {"collection": "timeout"}
+        except OSError:
+            pass
+        components[name] = summary
+output = {"schema": "szl.build-env.diagnostics/v1", "http": http,
+          "port_forward": port_forward, "components": components}
+encoded = json.dumps(output, indent=2, sort_keys=True) + "\n"
+assert len(encoded.encode("utf-8")) <= 8192
+Path(destination).write_text(encoded, encoding="utf-8")
+COMPONENT_DIAGNOSTICS_PY
 }
 
 emit_evidence() {
@@ -264,6 +375,10 @@ finalize() {
     exit_code=1
   else
     echo "Acceptance evidence: ${EVIDENCE_PATH}"
+  fi
+  if ! emit_diagnostics; then
+    echo "[FAIL] could not emit sanitized acceptance diagnostics" >&2
+    exit_code=1
   fi
   rm -rf -- "$STATE_DIR"
   exit "$exit_code"
@@ -737,10 +852,14 @@ if (( all_deployments_ready != 0 )); then
   route_pf_log="${STATE_DIR}/route-port-forward.log"
   if start_port_forward "service/a11oy" 18090 8080 "$route_pf_log"; then
     trace_seed_epoch_us="$(( $(epoch_milliseconds) * 1000 ))"
-    if route_code="$(curl --silent --show-error --output "${STATE_DIR}/route.body" \
+    route_curl_status=0
+    : > "${STATE_DIR}/route.body"
+    route_code="$(curl --silent --output "${STATE_DIR}/route.body" --max-filesize 65536 \
       --write-out '%{http_code}' --connect-timeout "$HTTP_TIMEOUT_SECONDS" \
       --max-time "$HTTP_TIMEOUT_SECONDS" -H "traceparent: ${traceparent}" \
-      'http://127.0.0.1:18090/route?fanout=sentra,amaru,killinchu,rosie')"; then
+      'http://127.0.0.1:18090/route?fanout=sentra,amaru,killinchu,rosie' 2>/dev/null)" || route_curl_status=$?
+    record_http_observation route "$route_curl_status" "$route_code" "${STATE_DIR}/route.body" >/dev/null
+    if (( route_curl_status == 0 )); then
       trace_seed_http_code="$route_code"
       if [[ "$route_code" != "200" ]]; then
         trace_failure="seed_request_http_${route_code}"
@@ -784,6 +903,7 @@ if (( all_deployments_ready != 0 )); then
         case "$last_trace_state" in
           absent) trace_failure="trace_not_found_before_deadline" ;;
           incomplete) trace_failure="trace_incomplete_before_deadline" ;;
+          http_error) trace_failure="jaeger_http_error_before_deadline" ;;
           *) trace_failure="jaeger_unreachable_before_deadline" ;;
         esac
         record_failure "$trace_failure"
@@ -791,10 +911,14 @@ if (( all_deployments_ready != 0 )); then
         break
       fi
       jaeger_timeout="$(milliseconds_as_seconds "$remaining_ms")"
-      if jaeger_code="$(curl --silent --show-error --output "$TRACE_RESPONSE_PATH" \
+      jaeger_curl_status=0
+      : > "$TRACE_RESPONSE_PATH"
+      jaeger_code="$(curl --silent --output "$TRACE_RESPONSE_PATH" --max-filesize 8388608 \
         --write-out '%{http_code}' --connect-timeout "$jaeger_timeout" \
         --max-time "$jaeger_timeout" \
-        "http://127.0.0.1:${PF_LOCAL_PORT}/api/traces/${trace_id}")"; then
+        "http://127.0.0.1:${PF_LOCAL_PORT}/api/traces/${trace_id}" 2>/dev/null)" || jaeger_curl_status=$?
+      last_trace_state="$(record_http_observation jaeger "$jaeger_curl_status" "$jaeger_code" "$TRACE_RESPONSE_PATH")"
+      if (( jaeger_curl_status == 0 )); then
         if [[ "$jaeger_code" == "200" ]]; then
           if last_trace_state="$(parse_trace_response)"; then
             case "$last_trace_state" in
@@ -826,7 +950,6 @@ if (( all_deployments_ready != 0 )); then
             break
           fi
         else
-          last_trace_state="unreachable"
           trace_failure="jaeger_http_${jaeger_code}"
         fi
       else
@@ -839,6 +962,7 @@ if (( all_deployments_ready != 0 )); then
         case "$last_trace_state" in
           absent) trace_failure="trace_not_found_before_deadline" ;;
           incomplete) trace_failure="trace_incomplete_before_deadline" ;;
+          http_error) trace_failure="jaeger_http_error_before_deadline" ;;
           *) trace_failure="jaeger_unreachable_before_deadline" ;;
         esac
         record_failure "$trace_failure"
