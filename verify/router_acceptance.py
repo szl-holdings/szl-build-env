@@ -112,6 +112,7 @@ def _connect(connection, parts, deadline, expired, active_sockets):
             current.connect(address)
             if parts.scheme == "https":
                 context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 context.set_alpn_protocols(["http/1.1"])
                 current = context.wrap_socket(current, server_hostname=parts.hostname,
                                               do_handshake_on_connect=False)
