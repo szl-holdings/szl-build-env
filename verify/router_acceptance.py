@@ -16,6 +16,7 @@ import os
 import re
 import secrets
 import socket
+import ssl
 import threading
 import time
 import urllib.parse
@@ -92,12 +93,49 @@ def _invalid_constant(_value):
     raise Failure("NONFINITE_JSON")
 
 
+def _connect(connection, parts, deadline, expired, active_sockets):
+    """Share one remaining deadline across every address and the TLS handshake."""
+    def remaining():
+        value = deadline - time.monotonic()
+        require(not expired.is_set() and value > 0, "REQUEST_TIMEOUT")
+        return value
+
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    addresses = socket.getaddrinfo(parts.hostname, port, 0, socket.SOCK_STREAM)
+    remaining()  # DNS may outlive the deadline; never send after it returns late.
+    last_error = None
+    for family, kind, proto, _, address in addresses:
+        current = socket.socket(family, kind, proto)
+        active_sockets.append(current)  # interruptible before TCP establishment
+        try:
+            current.settimeout(remaining())
+            current.connect(address)
+            if parts.scheme == "https":
+                context = ssl.create_default_context()
+                context.set_alpn_protocols(["http/1.1"])
+                current = context.wrap_socket(current, server_hostname=parts.hostname,
+                                              do_handshake_on_connect=False)
+                active_sockets.append(current)
+                current.settimeout(remaining())
+                current.do_handshake()
+            current.settimeout(remaining())
+            connection.sock = current
+            return
+        except (OSError, Failure) as error:
+            current.close()
+            remaining()
+            if isinstance(error, (Failure, ssl.SSLError)):
+                raise
+            last_error = error
+    raise last_error or OSError("No addresses resolved")
+
+
 def fetch(parts: urllib.parse.SplitResult, path: str, timeout: float,
           payload: dict | None = None, token: str | None = None) -> tuple[int, dict, dict]:
     """Direct HTTP(S): no proxy environment, redirects, retries, or raw errors.
 
-    A wall-clock timer shuts down the connected socket, bounding slow response
-    headers and bodies in addition to the connect/socket timeout. OS hostname
+    A wall-clock timer shuts down sockets during TCP, TLS, response headers and
+    bodies. Every address attempt uses the remaining deadline. OS hostname
     resolution may take longer; a timed-out connection never sends its request.
     """
     connection_type = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
@@ -118,8 +156,7 @@ def fetch(parts: urllib.parse.SplitResult, path: str, timeout: float,
     timer.start()
     deadline = time.monotonic() + timeout
     try:
-        connection.connect()
-        active_socket.append(connection.sock)
+        _connect(connection, parts, deadline, expired, active_socket)
         require(not expired.is_set() and time.monotonic() < deadline, "REQUEST_TIMEOUT")
         headers = {"Accept": "application/json", "User-Agent": "szl-build-env-router-acceptance/1"}
         raw_payload = None
@@ -152,8 +189,9 @@ def fetch(parts: urllib.parse.SplitResult, path: str, timeout: float,
         }
     except Failure:
         raise
-    except (OSError, http.client.HTTPException, ValueError, RecursionError, UnicodeError):
-        raise Failure("REQUEST_TIMEOUT" if expired.is_set() else "TRANSPORT_OR_JSON_FAILURE") from None
+    except (OSError, http.client.HTTPException, ValueError, RecursionError, UnicodeError) as error:
+        timed_out = expired.is_set() or time.monotonic() >= deadline or isinstance(error, TimeoutError)
+        raise Failure("REQUEST_TIMEOUT" if timed_out else "TRANSPORT_OR_JSON_FAILURE") from None
     finally:
         timer.cancel()
         connection.close()

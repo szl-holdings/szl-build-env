@@ -86,8 +86,9 @@ redirects and compressed responses are rejected. Connections ignore proxy
 environment variables. TLS uses the platform's normal certificate validation.
 
 Every response is capped at 2,000,000 bytes. `--timeout` sets a 0.1–60 second
-deadline for each connected request (default ten seconds). A timer interrupts
-slow headers and bodies; the operating system's hostname resolution may take
+deadline for each request (default ten seconds). Every resolved address and the
+TLS handshake share the remaining deadline; a timer interrupts sockets during
+connection establishment, headers and bodies. Operating system hostname resolution may take
 longer, but an expired connection never sends a late request. Inference mode
 performs at most five requests including the source recheck.
 

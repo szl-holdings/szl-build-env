@@ -47,6 +47,7 @@ trace_result="FAIL"
 trace_failure="not_run"
 trace_seed_epoch_us=""
 PF_PID=""
+PF_LOCAL_PORT=""
 
 record_failure() {
   gate_failed=1
@@ -528,13 +529,21 @@ start_port_forward() {
   local remote_port="$3"
   local log_path="$4"
   local deadline
+  PF_LOCAL_PORT=""
 
   kubectl -n "$NAMESPACE" port-forward --address 127.0.0.1 \
     "$resource" "${local_port}:${remote_port}" > "$log_path" 2>&1 &
   PF_PID=$!
   deadline=$(( $(date +%s) + PORT_FORWARD_TIMEOUT_SECONDS ))
   while (( $(date +%s) < deadline )); do
+    if [[ "$local_port" == "0" ]]; then
+      PF_LOCAL_PORT="$(sed -nE "s/^Forwarding from 127\\.0\\.0\\.1:([0-9]+) -> ${remote_port}$/\\1/p" "$log_path" | head -n 1)"
+      if [[ "$PF_LOCAL_PORT" =~ ^[0-9]{1,5}$ ]] && (( PF_LOCAL_PORT > 0 && PF_LOCAL_PORT <= 65535 )); then
+        return 0
+      fi
+    fi
     if grep -Fq "Forwarding from 127.0.0.1:${local_port}" "$log_path"; then
+      PF_LOCAL_PORT="$local_port"
       return 0
     fi
     if ! kill -0 "$PF_PID" >/dev/null 2>&1; then
@@ -764,7 +773,9 @@ if (( all_deployments_ready != 0 )); then
 
   echo "==> 5. Require Jaeger to return the exact trace with all five services"
   jaeger_pf_log="${STATE_DIR}/jaeger-port-forward.log"
-  if start_port_forward "service/jaeger" 16686 16686 "$jaeger_pf_log"; then
+  # kind already reserves host port 16686 for its NodePort mapping. Ask kubectl
+  # for an ephemeral loopback port so acceptance reaches its own verified tunnel.
+  if start_port_forward "service/jaeger" 0 16686 "$jaeger_pf_log"; then
     trace_deadline_ms=$(( $(epoch_milliseconds) + TRACE_TIMEOUT_SECONDS * 1000 ))
     last_trace_state="unreachable"
     while :; do
@@ -783,7 +794,7 @@ if (( all_deployments_ready != 0 )); then
       if jaeger_code="$(curl --silent --show-error --output "$TRACE_RESPONSE_PATH" \
         --write-out '%{http_code}' --connect-timeout "$jaeger_timeout" \
         --max-time "$jaeger_timeout" \
-        "http://127.0.0.1:16686/api/traces/${trace_id}")"; then
+        "http://127.0.0.1:${PF_LOCAL_PORT}/api/traces/${trace_id}")"; then
         if [[ "$jaeger_code" == "200" ]]; then
           if last_trace_state="$(parse_trace_response)"; then
             case "$last_trace_state" in

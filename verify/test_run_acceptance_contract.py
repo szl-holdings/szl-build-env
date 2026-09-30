@@ -20,6 +20,34 @@ VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
 
 
+def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
+    bash = _usable_bash()
+    if bash is None:
+        pytest.skip("a runnable bash is required for the port-forward contract test")
+    source = SCRIPT.read_text(encoding="utf-8")
+    function = source[source.index("start_port_forward() {"):source.index("stop_port_forward() {")]
+    # Test the production function against kubectl's ephemeral-port output; it
+    # must not bind the fixed 16686 port already owned by kind's NodePort mapping.
+    driver = """
+set -euo pipefail
+NAMESPACE=szl
+PORT_FORWARD_TIMEOUT_SECONDS=3
+kubectl() {
+  [[ "${@: -1}" == "0:16686" ]] || return 1
+  printf 'Forwarding from 127.0.0.1:34567 -> 16686\\n'
+  sleep 2
+}
+""" + function + """
+start_port_forward service/jaeger 0 16686 forward.log
+[[ "$PF_LOCAL_PORT" == "34567" ]]
+kill "$PF_PID" 2>/dev/null || true
+wait "$PF_PID" 2>/dev/null || true
+"""
+    result = subprocess.run([bash, "-c", driver], cwd=tmp_path, capture_output=True,
+                            text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
 def _usable_bash() -> str | None:
     bash = shutil.which("bash")
     if bash is None:

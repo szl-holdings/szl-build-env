@@ -311,3 +311,62 @@ def test_unrepresentable_timeout_fails_before_transport(monkeypatch):
     monkeypatch.setattr(verifier, "fetch", lambda *_args: pytest.fail("transport must not run"))
     evidence = verifier.run("https://example.com", REVISION, "test-model", timeout=10 ** 1000)
     assert evidence["failure"] == "TIMEOUT_INVALID"
+
+
+def test_address_attempts_share_one_deadline(monkeypatch):
+    attempts = []
+
+    class StalledSocket:
+        def __init__(self, *_args):
+            self.timeout = None
+            self.interrupted = threading.Event()
+
+        def settimeout(self, value):
+            self.timeout = value
+
+        def connect(self, _address):
+            attempts.append(self.timeout)
+            self.interrupted.wait(min(0.06, self.timeout))
+            raise OSError("connection stalled")
+
+        def shutdown(self, _how):
+            self.interrupted.set()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(verifier.socket, "getaddrinfo", lambda *_args: [
+        (2, 1, 6, "", ("127.0.0.1", 443)) for _ in range(20)
+    ])
+    monkeypatch.setattr(verifier.socket, "socket", StalledSocket)
+    started = time.monotonic()
+    with pytest.raises(verifier.Failure, match="REQUEST_TIMEOUT"):
+        verifier.fetch(verifier.target_parts("https://example.invalid"), "/api/source", 0.1)
+    assert time.monotonic() - started < 0.35
+    assert len(attempts) <= 2 and attempts[-1] < attempts[0]
+
+
+def test_stalled_tls_handshake_shares_request_deadline():
+    # A real TCP listener accepts the connection but never answers ClientHello.
+    listener = verifier.socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    stop = threading.Event()
+
+    def accept():
+        current, _ = listener.accept()
+        with current:
+            stop.wait(1)
+
+    thread = threading.Thread(target=accept, daemon=True)
+    thread.start()
+    try:
+        parts = verifier.target_parts(f"https://127.0.0.1:{listener.getsockname()[1]}")
+        started = time.monotonic()
+        with pytest.raises(verifier.Failure, match="REQUEST_TIMEOUT"):
+            verifier.fetch(parts, "/api/source", 0.1)
+        assert time.monotonic() - started < 0.4
+    finally:
+        stop.set()
+        listener.close()
+        thread.join(timeout=1)
