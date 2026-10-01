@@ -219,7 +219,7 @@ def main() -> int:
         if arguments.docker_config_dir is not None:
             write_local_config(arguments.docker_config_dir, config)
 
-        print(f"secret/{secret_name} configured for the private organ")
+        print("registry pull Secret configured for the private organ")  # no identifiers echoed
         return 0
     except ConfigurationError as error:
         print(f"[FAIL] {error}", file=sys.stderr)
