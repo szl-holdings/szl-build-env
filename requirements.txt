@@ -1,4 +1,7 @@
 # Runtime dependencies. Resolved by SZL frontier v4.1 20260928-221533; required CI decides merge.
+# 2026-10-28: szl-receipt (module szl_receipt, imported by verify/dsse_verify.py) replaces
+# szl-receipts (module szl_receipts, imported nowhere in this repository), pinned to the v0.1.0 commit.
+# Keep in sync with pyproject.toml [project].dependencies; verify/test_dependency_contract.py enforces it.
 cryptography==50.0.1
 pyyaml==6.0.3
-szl-receipts @ git+https://github.com/szl-holdings/szl-platform@09b8749e0439cea888a18482bf5ce81db9473ce0#subdirectory=packages/szl-receipts
+szl-receipt @ git+https://github.com/szl-holdings/szl-receipt.git@c3230711846e6d845b83b5e97a3c3e58fb1de107
