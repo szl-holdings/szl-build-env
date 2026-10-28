@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "szl-build-env"
+version = "0.0.0"
+description = "SZL development topology and runtime acceptance toolkit: DSSE receipts, route acknowledgements, connected traces and router integration checks."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+dependencies = [
+    "cryptography==50.0.1",
+    "pyyaml==6.0.3",
+    "szl-receipt @ git+https://github.com/szl-holdings/szl-receipt.git@c3230711846e6d845b83b5e97a3c3e58fb1de107",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+# Tooling repository: declares its environment, ships no importable package.
+packages = []
+py-modules = []
