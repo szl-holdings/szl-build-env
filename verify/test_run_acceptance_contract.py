@@ -336,6 +336,70 @@ def test_pull_request_checkout_must_bind_exact_base_and_head_parents(tmp_path):
     assert evidence["execution"]["candidate_sha"] == parents[1]
 
 
+def _push_environment(tmp_path, payload_changes=None, env_changes=None):
+    event = tmp_path / "push.json"
+    payload = {
+        "ref": "refs/heads/main", "deleted": False,
+        "before": "a" * 40, "after": _git_head(),
+        "repository": {"full_name": "szl-holdings/szl-build-env"},
+    }
+    payload.update(payload_changes or {})
+    event.write_text(json.dumps(payload), encoding="utf-8")
+    env = {
+        "GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "push",
+        "GITHUB_EVENT_PATH": str(event), "GITHUB_REF": "refs/heads/main",
+        "GITHUB_REPOSITORY": "szl-holdings/szl-build-env",
+        "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "123",
+        "GITHUB_SHA": _git_head(),
+    }
+    env.update(env_changes or {})
+    return env
+
+
+def test_main_push_binds_event_source_but_still_rejects_missing_deployment(tmp_path):
+    result, evidence = _run_acceptance(tmp_path, _push_environment(tmp_path))
+    assert result.returncode == 1
+    assert evidence["failure"] == "deployment_missing"
+    assert evidence["execution"]["event_name"] == "push"
+    assert evidence["execution"]["ref"] == "refs/heads/main"
+    assert evidence["execution"]["base_sha"] == "a" * 40
+    assert evidence["execution"]["candidate_sha"] == _git_head()
+
+
+@pytest.mark.parametrize("changes", [
+    {"after": "b" * 40}, {"after": None}, {"before": "main"},
+    {"ref": "refs/heads/feature"}, {"deleted": True}, {"deleted": 0},
+    {"repository": {"full_name": "attacker/fork"}},
+])
+def test_push_rejects_source_payload_mismatch(tmp_path, changes):
+    result, evidence = _run_acceptance(tmp_path, _push_environment(tmp_path, changes))
+    assert result.returncode == 1
+    assert evidence["failure"] == "invalid_github_event_payload"
+
+
+@pytest.mark.parametrize("changes", [
+    {"GITHUB_REF": "refs/tags/v1"}, {"GITHUB_REF": "refs/heads/feature"},
+    {"GITHUB_HEAD_REF": "feature"}, {"GITHUB_BASE_REF": "main"},
+])
+def test_push_rejects_non_main_event_context(tmp_path, changes):
+    result, evidence = _run_acceptance(tmp_path, _push_environment(tmp_path, env_changes=changes))
+    assert result.returncode == 1
+    assert evidence["failure"] == "invalid_push_ref"
+
+
+@pytest.mark.parametrize("body", [None, "not-json", "[]"])
+def test_push_requires_valid_event_payload(tmp_path, body):
+    env = _push_environment(tmp_path)
+    event = Path(env["GITHUB_EVENT_PATH"])
+    if body is None:
+        event.unlink()
+    else:
+        event.write_text(body, encoding="utf-8")
+    result, evidence = _run_acceptance(tmp_path, env)
+    assert result.returncode == 1
+    assert evidence["failure"] == ("missing_github_event_payload" if body is None else "invalid_github_event_payload")
+
+
 def test_pull_request_rejects_event_parent_mismatch(tmp_path):
     parents = _pull_request_merge_parents()
     event = tmp_path / "event.json"
