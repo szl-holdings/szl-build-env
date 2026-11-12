@@ -525,6 +525,52 @@ PY
           exit 1
         fi
         ;;
+      push)
+        if [[ "$source_ref" != "refs/heads/main" || -n "${GITHUB_BASE_REF:-}" || -n "${GITHUB_HEAD_REF:-}" ]]; then
+          overall_failure="invalid_push_ref"
+          echo "[FAIL] push acceptance is restricted to protected main" >&2
+          exit 1
+        fi
+        event_path="${GITHUB_EVENT_PATH:-}"
+        if [[ ! -f "$event_path" ]]; then
+          overall_failure="missing_github_event_payload"
+          echo "[FAIL] push evidence requires GITHUB_EVENT_PATH" >&2
+          exit 1
+        fi
+        if ! event_identity="$(python3 - "$event_path" "$github_sha" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError):
+    raise SystemExit("invalid push event payload")
+if not isinstance(payload, dict):
+    raise SystemExit("push event payload must be an object")
+repository = payload.get("repository")
+if not isinstance(repository, dict) or repository.get("full_name") != "szl-holdings/szl-build-env":
+    raise SystemExit("invalid push repository")
+if payload.get("ref") != "refs/heads/main" or payload.get("deleted") is not False:
+    raise SystemExit("push must update the existing main ref")
+before = payload.get("before")
+after = payload.get("after")
+if not isinstance(before, str) or not re.fullmatch(r"[0-9a-f]{40}", before):
+    raise SystemExit("invalid push before sha")
+if not isinstance(after, str) or not re.fullmatch(r"[0-9a-f]{40}", after) or after != sys.argv[2]:
+    raise SystemExit("push after sha does not match the checked-out commit")
+print(before)
+PY
+        )"; then
+          overall_failure="invalid_github_event_payload"
+          echo "[FAIL] push event payload failed source validation" >&2
+          exit 1
+        fi
+        base_sha="$event_identity"
+        candidate_sha="$github_sha"
+        head_repository="$source_repository"
+        ;;
       workflow_dispatch)
         if [[ "$source_ref" != "refs/heads/main" || -n "${GITHUB_BASE_REF:-}" || -n "${GITHUB_HEAD_REF:-}" ]]; then
           overall_failure="invalid_workflow_dispatch_ref"
@@ -537,7 +583,7 @@ PY
         ;;
       *)
         overall_failure="invalid_github_event_name"
-        echo "[FAIL] acceptance supports only pull_request and workflow_dispatch events" >&2
+        echo "[FAIL] acceptance supports only pull_request, main push, and workflow_dispatch events" >&2
         exit 1
         ;;
     esac
