@@ -177,13 +177,20 @@ verify/run-acceptance.sh           exact per-image health + connected trace acce
 verify/validate_route_ack.py       strict route acknowledgement validator
 verify/validate_jaeger_trace.py    fresh parent-linked Jaeger graph validator
 demo/greene-demo.sh                June 9 scripted demo
-.github/workflows/ci.yml           PR CI: make up + make verify in kind
+.github/workflows/ci.yml           PR and main-push CI: make up + make verify in kind
 HONEST_GAPS.md                     everything currently stubbed and why
 ```
 
 ---
 
 ## Honest gaps
+
+CI runs the same fail-closed acceptance on pull requests, pushes to `main`, and
+manual `main` runs. Main-push evidence binds the event's `before` and `after`
+commits to the checked-out source, repository, and branch. A missing or mismatched
+event payload fails acceptance. Passing unit or metadata checks does not establish
+five-organ runtime acceptance; inspect the separate `build-env` job and its
+source-bound acceptance artifact, including any prerequisite failure.
 
 Read [`HONEST_GAPS.md`](./HONEST_GAPS.md) before you trust a green check.
 Short version:
