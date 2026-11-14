@@ -5,6 +5,14 @@ SHELL := /bin/bash
 
 # ---- pins (single source of truth) ------------------------------------------
 ISTIO_VERSION   ?= 1.25.0
+# SHA-256 of istio-<version>-<platform>.tar.gz for the release below, copied from the
+# release's <asset>.sha256 files (SCPIN-CURL-1). Another ISTIO_VERSION has no committed
+# checksum and is refused.
+ISTIO_SHA256_VERSION     := 1.25.0
+ISTIO_SHA256_LINUX_AMD64 := 449dac28138c890a592f66420577e0ce299a6d8f89b64d528ccb3135a5c7d0ec
+ISTIO_SHA256_LINUX_ARM64 := ad536def76062d5a4f83b2156e09cb80609fdd1d6e2fbcf1d7d831b233c39fae
+ISTIO_SHA256_OSX_AMD64   := 734763685696154c8cb5bba186878b395c7fc4c3f3401b14ee6430991a1375ff
+ISTIO_SHA256_OSX_ARM64   := ebac1c4ee977a45fc7b8f6c5a5bbfd28bcc168734c96d1f466a34a3d721a5a41
 OTEL_VERSION    ?= 0.135.0
 GATEWAY_API_VERSION ?= v1.2.1
 KIND_CLUSTER    ?= szl-build-env
@@ -27,7 +35,19 @@ istioctl: ## Download pinned istioctl into ./bin
 	@mkdir -p $(BIN)
 	@if [ ! -x "$(ISTIOCTL)" ]; then \
 	  echo ">> downloading istioctl $(ISTIO_VERSION)"; \
-	  curl -sSL https://istio.io/downloadIstio | ISTIO_VERSION=$(ISTIO_VERSION) sh - ; \
+	  [ "$(ISTIO_VERSION)" = "$(ISTIO_SHA256_VERSION)" ] || { echo ">> no committed SHA-256 for ISTIO_VERSION=$(ISTIO_VERSION); refusing" >&2; exit 1; }; \
+	  case "$$(uname -s)/$$(uname -m)" in \
+	    Linux/x86_64) plat=linux-amd64; want="$(ISTIO_SHA256_LINUX_AMD64)" ;; \
+	    Linux/aarch64|Linux/arm64) plat=linux-arm64; want="$(ISTIO_SHA256_LINUX_ARM64)" ;; \
+	    Darwin/x86_64) plat=osx; want="$(ISTIO_SHA256_OSX_AMD64)" ;; \
+	    Darwin/arm64) plat=osx-arm64; want="$(ISTIO_SHA256_OSX_ARM64)" ;; \
+	    *) echo ">> no committed SHA-256 for $$(uname -s)/$$(uname -m); refusing" >&2; exit 1 ;; \
+	  esac; \
+	  tgz="istio-$(ISTIO_VERSION)-$$plat.tar.gz"; \
+	  curl -fsSLo "$$tgz" "https://github.com/istio/istio/releases/download/$(ISTIO_VERSION)/$$tgz" || exit 1; \
+	  got="$$( (sha256sum "$$tgz" 2>/dev/null || shasum -a 256 "$$tgz") | cut -d' ' -f1)"; \
+	  [ "$$got" = "$$want" ] || { echo ">> $$tgz SHA-256 $$got does not match the committed value; refusing" >&2; rm -f "$$tgz"; exit 1; }; \
+	  tar -xzf "$$tgz" || exit 1; rm -f "$$tgz"; \
 	  cp istio-$(ISTIO_VERSION)/bin/istioctl $(ISTIOCTL); \
 	  chmod +x $(ISTIOCTL); \
 	fi
