@@ -80,6 +80,10 @@ def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
     grpc = re.search(r'grpc:\s+endpoint: 0\.0\.0\.0:(\d+)', collector)
     assert grpc is not None
     assert urlsplit(endpoints[0]).port == int(grpc.group(1))
+    # The pinned vsp_otel endpoint policy denies DNS names absent from this
+    # exact allowlist, even when the OTLP port and service environment are set.
+    allowlists = re.findall(r'A11OY_OTEL_ALLOWED_HOSTS,\s+value: "([^"]+)"', manifest)
+    assert allowlists == [urlsplit(endpoints[0]).hostname]
 
 
 def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
