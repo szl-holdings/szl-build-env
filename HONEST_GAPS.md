@@ -38,7 +38,7 @@
 
 | Organ | Immutable digest | Signed source | Publisher run | Source status |
 |---|---|---|---|---|
-| a11oy | `c285293c...d21526` | `a29f43251e63aa20469413bc006896be803a289d` | `27237732091` | historical; protected main has advanced |
+| a11oy | `c08839a0...04cef` | `bab6cbec341f4206edf22d13e93af690f656650f` | `44097341241` | source-bound signed build; runtime acceptance pending |
 | sentra | `60a0efc1...3639` | `84c24336f7ce00aeda454c213c08da38f53e4c45` | `27040271560` | historical; source repository unavailable |
 | amaru | `53301e26...89ff` | `324c3d60c2e2195e89cfefb28613ff26d94e67f8` | `27040273859` | historical; source repository unavailable |
 | killinchu | `1620a0f3...d2c9` | `cc49a0cc5fa03405fc7894c64040e013911a63bc` | `32365110327` | exact protected main at publication |
@@ -104,15 +104,26 @@ unavailable historical source repository current or reproducible.
   `GET /route?fanout=sentra,amaru,killinchu,rosie`, then requires one fresh Jaeger
   span graph connecting all five services to the exact injected root span. It never
   accepts an unconnected service-name bag or substitutes a health response.
-- Neither the digest-pinned A11oy runtime nor the currently published protected-main
-  A11oy runtime implements that root fan-out contract. Sentra documents only
-  in-process propagation. Amaru explicitly disables generic OpenTelemetry and
-  cannot emit the required OTLP span. Rosie's root health handler is not instrumented.
-- Therefore health readiness can be repaired and verified, but five-service trace
-  acceptance remains intentionally red. The unblock is protected-source organ
-  successors that implement traceparent-aware inbound middleware, real downstream
-  fan-out, OTLP export, and an exact machine-validated route acknowledgement,
-  followed by signed/attested immutable image publication and digest relock here.
+- The previous signed A11oy image `c285293c...d21526` was built from source
+  `a29f43251e63aa20469413bc006896be803a289d`, which did not contain `a11oy_build_env_fanout.py`.
+  The observed trace-seed response exceeding 65,536 bytes is consistent with
+  a SPA fallback, not an acknowledged fan-out; the response body was not retained.
+- This change selects image `sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef`
+  from protected source `bab6cbec341f4206edf22d13e93af690f656650f`, published,
+  keyless-signed and provenance-verified by workflow run `44097341241`.
+  That source registers the fixed fan-out route and the isolated kind manifest
+  explicitly enables `A11OY_BUILD_ENV_FANOUT=1`. Publisher identity is **not**
+  evidence that the new image was deployed, the route acknowledged, or Jaeger
+  observed five connected service spans.
+- Sentra has previously documented only in-process propagation; Amaru's
+  historical image disables generic OpenTelemetry; Rosie's historical root
+  health handler was not instrumented. Their current deployed trace behavior
+  remains unverified until the exact Jaeger acceptance artifact is inspected.
+- Therefore five-service trace acceptance remains **HOLD** until CI proves a
+  fresh exact traceparent, the validated route acknowledgement, distinct
+  connected spans from all five services, and post-deployment readback.
+  Missing downstream trace capabilities require separately owned source and
+  signed-image repairs; neither skipped gates nor health-only checks count.
 
 ## Secrets — what is and is NOT in this repo
 
