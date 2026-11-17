@@ -1,6 +1,6 @@
 # Organ Deployment: a11oy
-# Source: signed historical source; current protected source has advanced a29f43251e63aa20469413bc006896be803a289d
-# Image: ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526
+# Source: signed protected-main build bab6cbec341f4206edf22d13e93af690f656650f; five-organ trace acceptance pending
+# Image: ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 apiVersion: apps/v1
 kind: Deployment
@@ -46,18 +46,18 @@ spec:
             - "--certificate-github-workflow-ref"
             - "refs/heads/main"
             - "--certificate-github-workflow-sha"
-            - "a29f43251e63aa20469413bc006896be803a289d"
+            - "bab6cbec341f4206edf22d13e93af690f656650f"
             - "--certificate-github-workflow-trigger"
             - "push"
-            - "ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526"
+            - "ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef"
           env:
             - { name: ORGAN_NAME,  value: "a11oy" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
       containers:
         - name: a11oy
-          image: ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526
+          image: ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef
           imagePullPolicy: IfNotPresent
           ports:
             - { containerPort: 7860, name: http }
@@ -66,6 +66,8 @@ spec:
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4317" }
             - { name: OTEL_SERVICE_NAME,           value: "a11oy" }
             - { name: OTEL_TRACES_EXPORTER,        value: "otlp" }
+            # Isolated kind five-organ acceptance only; production stays opt-out.
+            - { name: A11OY_BUILD_ENV_FANOUT,      value: "1" }
             - { name: SZL_ORGAN,                   value: "a11oy" }
           readinessProbe:
             httpGet: { path: /healthz, port: http }
