@@ -66,6 +66,9 @@ spec:
           env:
             # The pinned source's vsp_otel middleware uses OTLP/gRPC, not HTTP.
             - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://opentelemetry-collector.szl.svc:4317" }
+            # vsp_otel rejects DNS names unless the EXACT private collector hostname is allowlisted.
+            # Restrict this to isolated kind; do not admit wildcard, user-selected or public hosts.
+            - { name: A11OY_OTEL_ALLOWED_HOSTS,   value: "opentelemetry-collector.szl.svc" }
             - { name: OTEL_SERVICE_NAME,           value: "a11oy" }
             - { name: OTEL_TRACES_EXPORTER,        value: "otlp" }
             # Isolated kind five-organ acceptance only; production stays opt-out.

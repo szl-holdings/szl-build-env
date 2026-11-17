@@ -153,6 +153,19 @@ unavailable historical source repository current or reproducible.
   source-bound memory-admission correction, **not** proof of runtime success.
   Two `ModuleNotFoundError` string occurrences in truncated prior logs are
   not treated as a verified fatal cause without a complete exception trace.
+- [CI 44160741070](https://github.com/szl-holdings/szl-build-env/actions/runs/44160741070)
+  proved all five deployments ready with HTTP 200 health and verified signatures,
+  but the exact governed fan-out responded HTTP 503. Its sanitized, bounded
+  readback recorded `TRACING_NOT_CONFIGURED`; Jaeger returned HTTP 404 for the
+  injected trace and saw zero verified spans. In protected A11oy source,
+  `vsp_otel.middleware._endpoint_policy` rejects non-loopback DNS hosts unless
+  explicitly listed in `A11OY_OTEL_ALLOWED_HOSTS`. The isolated kind manifest
+  already declared `OTEL_EXPORTER_OTLP_ENDPOINT=http://opentelemetry-collector.szl.svc:4317`
+  but omitted that exact private DNS host from its allowlist. The reviewed
+  repair adds only `opentelemetry-collector.szl.svc`, with a source-contract
+  assertion; it does not admit wildcard or public OTLP destinations. A configured
+  tracer is not collector delivery evidence, and downstream organs may still
+  lack exported spans. A new exact signed-image acceptance run is required.
 - Therefore five-service trace acceptance remains **HOLD** until A11oy boots
   and its signed container reaches readiness, CI proves a fresh exact
   traceparent, the validated route acknowledgement, distinct connected spans

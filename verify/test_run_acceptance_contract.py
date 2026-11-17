@@ -80,6 +80,14 @@ def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
     grpc = re.search(r'grpc:\s+endpoint: 0\.0\.0\.0:(\d+)', collector)
     assert grpc is not None
     assert urlsplit(endpoints[0]).port == int(grpc.group(1))
+    # The protected A11oy vsp_otel._endpoint_policy explicitly rejects DNS
+    # collector hosts not declared by A11OY_OTEL_ALLOWED_HOSTS. A configured
+    # OTLP URL without this exact allowlist was the CI #44160741070 failure.
+    host = urlsplit(endpoints[0]).hostname
+    allowed = re.findall(r'A11OY_OTEL_ALLOWED_HOSTS,\s+value: "([^"]+)"', manifest)
+    assert allowed == [host] == ["opentelemetry-collector.szl.svc"]
+    assert urlsplit(endpoints[0]).scheme == "http"
+    assert "A11OY_BUILD_ENV_FANOUT" in manifest
 
 
 def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
