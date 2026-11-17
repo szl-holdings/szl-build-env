@@ -136,6 +136,7 @@ if sample:
 # protected-source fixed fan-out. Never write raw response strings or arbitrary
 # JSON keys from a potentially hostile origin into retained evidence.
 reason = None
+peer_failures = None  # UNKNOWN unless an exact versioned causal map is accepted.
 if (phase == "route" and status in (400, 429, 503, 504)
         and exit_code == 0 and kind == "json" and 0 < size <= 2048):
     allowed = {
@@ -162,6 +163,36 @@ if (phase == "route" and status in (400, 429, 503, 504)
                 and type(payload.get("reason")) is str
                 and payload["reason"] in allowed):
             reason = payload["reason"]
+            # An A11oy diagnostic is not proof of exported Jaeger spans. Only
+            # retain an exact, ordered, finite list of compiled-in peer names
+            # and reasons. Malformed or absent lists mean UNKNOWN (not green).
+            peers = ("sentra", "amaru", "killinchu", "rosie")
+            peer_codes = {
+                "PEER_STATUS_UNAVAILABLE", "PEER_JSON_REQUIRED",
+                "PEER_BODY_LIMIT", "PEER_TRACE_UNAVAILABLE",
+                "PEER_TIMEOUT", "PEER_UNAVAILABLE",
+            }
+            candidate = payload.get("peer_failures")
+            if (reason in peer_codes and type(candidate) is list
+                    and 1 <= len(candidate) <= len(peers)):
+                validated = []
+                last_index = -1
+                for item in candidate:
+                    if (type(item) is not dict
+                            or set(item) != {"peer", "reason"}
+                            or type(item["peer"]) is not str
+                            or type(item["reason"]) is not str
+                            or item["peer"] not in peers
+                            or item["reason"] not in peer_codes):
+                        break
+                    index = peers.index(item["peer"])
+                    if index <= last_index:
+                        break
+                    last_index = index
+                    validated.append({"peer": item["peer"], "reason": item["reason"]})
+                else:
+                    if validated[0]["reason"] == reason:
+                        peer_failures = validated
     except (ValueError, UnicodeError, RecursionError):
         pass
 path = Path(destination)
@@ -175,6 +206,7 @@ observations[phase] = {
     "body_bytes_capped": min(size, 8 * 1024 * 1024),
     "body_format": kind,
     "route_failure_reason": reason,
+    "peer_failures": peer_failures,
     "sample_truncated": size > 4096,
     "response_limit_exceeded": exit_code == 63,
 }

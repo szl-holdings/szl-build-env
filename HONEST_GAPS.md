@@ -172,6 +172,20 @@ unavailable historical source repository current or reproducible.
   from all five services, and post-deployment readback.
   Missing downstream trace capabilities require separately owned source and
   signed-image repairs; neither skipped gates nor health-only checks count.
+- **Causal peer diagnostic (source candidate, not admitted release):**
+  [A11oy #3673](https://github.com/szl-holdings/a11oy/pull/3673)
+  preserves the existing exact fan-out contract while returning a deterministic
+  `peer_failures` list containing only one of the four fixed names and a finite
+  `PEER_*` failure class. The build-env diagnostic now accepts and retains that
+  list only when the source response has the exact denial schema, the root
+  failure matches the first peer failure, and all names/reasons/order/duplicates
+  pass explicit checks. Missing or malformed maps are `null` (UNKNOWN), never
+  an empty successful list. No raw body, headers, token, host, upstream exception,
+  private data, or signed/settled-transaction claim is stored.
+  **The currently tested GHCR image does not contain #3673**. A new
+  source-bound, signed immutable image, narrow manifest rebind and exact
+  post-deploy five-organ readback remain required; the diagnostic alone does
+  not repair or certify any downstream exporter.
 
 ## Secrets — what is and is NOT in this repo
 

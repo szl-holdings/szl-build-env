@@ -717,6 +717,57 @@ def test_route_failure_reason_is_allowlisted_without_payload_leak(
     assert "PRIVATE_TOKEN" not in destination.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("variant", [
+    "valid", "forged_host", "private_reason", "out_of_order",
+    "duplicate_peer", "root_mismatch", "missing_map",
+])
+def test_causal_peer_failure_readback_is_exact_and_secret_free(tmp_path, variant):
+    """The sender's untrusted JSON cannot smuggle headers, secrets or hosts."""
+    failures = [
+        {"peer": "sentra", "reason": "PEER_STATUS_UNAVAILABLE"},
+        {"peer": "killinchu", "reason": "PEER_TRACE_UNAVAILABLE"},
+    ]
+    if variant == "forged_host":
+        failures[1]["peer"] = "http://169.254.169.254/PRIVATE_TOKEN"
+    elif variant == "private_reason":
+        failures[1]["reason"] = "PRIVATE_TOKEN"
+    elif variant == "out_of_order":
+        failures = list(reversed(failures))
+    elif variant == "duplicate_peer":
+        failures[1]["peer"] = "sentra"
+    elif variant == "root_mismatch":
+        failures[0]["reason"] = "PEER_TRACE_UNAVAILABLE"
+    elif variant == "missing_map":
+        failures = None
+    response = {
+        "schema": "szl.build-env.fanout-ack/v1",
+        "accepted": False,
+        "reason": "PEER_STATUS_UNAVAILABLE",
+        "execution_authorized": False,
+        "receipt_minted": False,
+    }
+    if failures is not None:
+        response["peer_failures"] = failures
+    body = tmp_path / "route-body"
+    body.write_text(json.dumps(response), encoding="utf-8")
+    destination = tmp_path / "diagnostic.json"
+    subprocess.run(
+        [sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+         str(destination), "route", "0", "503", str(body)],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    encoded = destination.read_text(encoding="utf-8")
+    record = json.loads(encoded)["route"]
+    assert record["route_failure_reason"] == "PEER_STATUS_UNAVAILABLE"
+    assert record["peer_failures"] == ([
+        {"peer": "sentra", "reason": "PEER_STATUS_UNAVAILABLE"},
+        {"peer": "killinchu", "reason": "PEER_TRACE_UNAVAILABLE"},
+    ] if variant == "valid" else None)
+    assert "PRIVATE_TOKEN" not in encoded
+    assert "169.254.169.254" not in encoded
+    assert len(encoded) < 1024
+
+
 def test_duplicate_or_malformed_route_reason_is_never_retained(tmp_path):
     body = tmp_path / "route-body"
     body.write_text(
