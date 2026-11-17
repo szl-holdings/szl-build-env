@@ -26,7 +26,7 @@ yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 
 image_for() {
   case "$1" in
-    a11oy) printf '%s\n' 'ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526' ;;
+    a11oy) printf '%s\n' 'ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef' ;;
     sentra) printf '%s\n' 'ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639' ;;
     amaru) printf '%s\n' 'ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff' ;;
     killinchu) printf '%s\n' 'ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9' ;;
@@ -37,7 +37,7 @@ image_for() {
 
 workflow_sha_for() {
   case "$1" in
-    a11oy) printf '%s\n' 'a29f43251e63aa20469413bc006896be803a289d' ;;
+    a11oy) printf '%s\n' 'bab6cbec341f4206edf22d13e93af690f656650f' ;;
     sentra) printf '%s\n' '84c24336f7ce00aeda454c213c08da38f53e4c45' ;;
     amaru) printf '%s\n' '324c3d60c2e2195e89cfefb28613ff26d94e67f8' ;;
     killinchu) printf '%s\n' 'cc49a0cc5fa03405fc7894c64040e013911a63bc' ;;
