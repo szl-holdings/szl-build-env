@@ -22,7 +22,7 @@ ORGAN_RUNTIME_SPECS = {
     "a11oy": {"digest": "sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef", "source": "bab6cbec341f4206edf22d13e93af690f656650f", "ref": "refs/heads/main", "run": "44097341241", "health": "/healthz"},
     "sentra": {"digest": "sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639", "source": "84c24336f7ce00aeda454c213c08da38f53e4c45", "ref": "refs/heads/main", "run": "27040271560", "health": "/healthz"},
     "amaru": {"digest": "sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff", "source": "324c3d60c2e2195e89cfefb28613ff26d94e67f8", "ref": "refs/heads/main", "run": "27040273859", "health": "/healthz"},
-    "killinchu": {"digest": "sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9", "source": "cc49a0cc5fa03405fc7894c64040e013911a63bc", "ref": "refs/heads/main", "run": "32365110327", "health": "/api/killinchu/healthz"},
+    "killinchu": {"digest": "sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045", "source": "e5ca7b75adbfe54891fcff26c8abbdc61dc1fc48", "ref": "refs/heads/main", "run": "44182142894", "health": "/api/killinchu/healthz"},
     "rosie": {"digest": "sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848", "source": "97be4e52695e8141036b1c4269a4722148852d4a", "ref": "refs/tags/uds-v0.3.1", "run": "27043537785", "health": "/healthz"},
 }
 ORGANS = tuple(ORGAN_RUNTIME_SPECS)
@@ -435,7 +435,7 @@ def test_all_organs_are_digest_pinned_to_exact_runtime_and_certificate_contracts
     honest_gaps = (ROOT / "HONEST_GAPS.md").read_text()
     assert KILLINCHU_SOURCE_SHA in honest_gaps
     assert KILLINCHU_DIGEST in honest_gaps
-    assert "32365110327" in honest_gaps
+    assert "44182142894" in honest_gaps
 
 def test_generated_deployments_are_reproducible():
     paths = [ROOT / "deploy" / "organs" / f"{organ}-deployment.yaml" for organ in ORGANS]

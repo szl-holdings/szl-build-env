@@ -90,6 +90,23 @@ def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
     assert "A11OY_BUILD_ENV_FANOUT" in manifest
 
 
+def test_signed_killinchu_source_uses_exact_private_otlp_grpc_receiver():
+    # This SOURCE contract is separate from Jaeger delivery/parentage admission.
+    manifest = (ROOT / "manifests/organs/killinchu.yaml").read_text(encoding="utf-8")
+    collector = (ROOT / "manifests/otel/collector.yaml").read_text(encoding="utf-8")
+    endpoints = re.findall(r'OTEL_EXPORTER_OTLP_ENDPOINT, value: "([^"]+)"', manifest)
+    allowlist = re.findall(r'A11OY_OTEL_ALLOWED_HOSTS, value: "([^"]+)"', manifest)
+    assert endpoints == ["http://opentelemetry-collector.szl.svc:4317"]
+    assert allowlist == ["opentelemetry-collector.szl.svc"]
+    assert urlsplit(endpoints[0]).hostname == allowlist[0]
+    grpc = re.search(r'grpc:\s+endpoint: 0\.0\.0\.0:(\d+)', collector)
+    assert grpc is not None
+    assert urlsplit(endpoints[0]).port == int(grpc.group(1))
+    assert "http://opentelemetry-collector.szl.svc:4318" not in manifest
+    assert "e5ca7b75adbfe54891fcff26c8abbdc61dc1fc48" in manifest
+    assert "sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045" in manifest
+
+
 def test_ephemeral_port_forward_uses_kubectl_selected_port(tmp_path):
     bash = _usable_bash()
     if bash is None:

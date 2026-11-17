@@ -186,6 +186,24 @@ unavailable historical source repository current or reproducible.
   source-bound, signed immutable image, narrow manifest rebind and exact
   post-deploy five-organ readback remain required; the diagnostic alone does
   not repair or certify any downstream exporter.
+- **Killinchu publisher source advancement (November 17, 2026; test only):**
+  [Protected-main PR #641](https://github.com/szl-holdings/killinchu/pull/641)
+  was merged as `e5ca7b75adbfe54891fcff26c8abbdc61dc1fc48`.
+  Exact [GHCR workflow 44182142894](https://github.com/szl-holdings/killinchu/actions/runs/44182142894)
+  finished successfully and published the immutable, keyless-signed image
+  `ghcr.io/szl-holdings/killinchu@sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045`.
+  Publisher logs include exact-source/identity `cosign verify`,
+  `verify-attestation --type slsaprovenance` and immutable tag readback.
+  The builder's own SLSA wording is *not* independently upgraded to a
+  canonical SLSA L2 assurance claim here.
+- This branch now **proposes** relocking only Killinchu to that signed digest,
+  protected SHA and run. The isolated kind source manifest also switches its
+  telemetry exporter to the collector's actual **OTLP/gRPC port 4317** and
+  explicitly admits the exact private DNS hostname
+  `opentelemetry-collector.szl.svc`. Private/production HF settings remain
+  unchanged. Signing/publishing is source evidence, not proof of a current
+  deployed container, a five-span Jaeger graph, model training or settlement.
+  Full `build-env` CI and separate all-service readback still gate the merge.
 
 ## Secrets — what is and is NOT in this repo
 
