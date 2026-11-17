@@ -22,6 +22,53 @@ VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
 
 
+def test_failure_diagnostics_classify_a11oy_without_leaking_raw_pod_logs(tmp_path):
+    """Only enumerated container status and exception counts may leave the runner."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    source = SCRIPT.read_text(encoding="utf-8")
+    body = source.split("<<'COMPONENT_DIAGNOSTICS_PY'", 1)[1].split(
+        "COMPONENT_DIAGNOSTICS_PY", 1
+    )[0].lstrip()
+    compile(body, str(SCRIPT), "exec")
+    output = tmp_path / "diagnostics.json"
+    http = tmp_path / "http.json"
+    http.write_text("{}", encoding="utf-8")
+
+    def fake_run(arguments, **_kwargs):
+        if "get" in arguments and "pods" in arguments:
+            document = {"items": [{
+                "status": {"containerStatuses": [{
+                    "name": "a11oy",
+                    "ready": False, "restartCount": 3,
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {"reason": "Error", "exitCode": 1}},
+                }]}
+            }]}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(document).encode())
+        if "--previous" in arguments:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"ModuleNotFoundError: No module named PRIVATE_SECRET_VALUE\\n"
+                       b"Authorization: Bearer sensitive_private_token\\n",
+            )
+        return SimpleNamespace(returncode=0, stdout=b"{}")
+
+    with patch("subprocess.run", side_effect=fake_run), patch.object(
+        sys, "argv", ["-", str(http), str(output), "szl", "1"]
+    ):
+        exec(compile(body, str(SCRIPT), "exec"), {"__name__": "__main__"})
+
+    recorded = output.read_text(encoding="utf-8")
+    assert "PRIVATE_SECRET_VALUE" not in recorded
+    assert "sensitive_private_token" not in recorded
+    result = json.loads(recorded)["components"]["a11oy_runtime"]
+    assert result["containers"][0]["waiting"] == "CrashLoopBackOff"
+    assert result["containers"][0]["last_exit_code"] == 1
+    assert result["previous_log"]["signals"]["modulenotfounderror"] == 1
+
+
 def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
     # a11oy@bab6cbec341f4206edf22d13e93af690f656650f imports
     # opentelemetry.exporter.otlp.proto.grpc in vsp_otel/middleware.py.

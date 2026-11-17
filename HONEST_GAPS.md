@@ -127,8 +127,17 @@ unavailable historical source repository current or reproducible.
   isolated A11oy init gate to the exact immutable v3.1.4 image. The identity,
   issuer, workflow commit, and push-trigger certificate predicates remain exact.
   A successful signing log is NOT evidence of a successful verification.
-- Therefore five-service trace acceptance remains **HOLD** until the new
-  signature passes the on-run cryptographic gate, CI proves a fresh exact
+- [Follow-up CI 44115434984](https://github.com/szl-holdings/szl-build-env/actions/runs/44115434984)
+  **passed all five** strict Cosign signature verifications. It then exposed
+  the next independent failure: the new A11oy application container entered
+  `CrashLoopBackOff`, and exact `/healthz` readiness timed out after 300s.
+  The sanitized acceptance artifact reports `deployment_readiness_timeout`;
+  it does not identify the application exception or establish a successful trace.
+  The subsequent diagnostic collector records only allowlisted container
+  states, restart/exit codes and exception-class counts from bounded previous
+  logs. It never exports pod log lines, credentials, response text or env vars.
+- Therefore five-service trace acceptance remains **HOLD** until A11oy boots
+  and its signed container reaches readiness, CI proves a fresh exact
   traceparent, the validated route acknowledgement, distinct connected spans
   from all five services, and post-deployment readback.
   Missing downstream trace capabilities require separately owned source and
