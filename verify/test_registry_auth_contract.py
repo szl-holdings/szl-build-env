@@ -19,7 +19,7 @@ AUTH_HELPER = ROOT / "bootstrap" / "configure-ghcr-pull-auth.py"
 SECRET_NAME = "szl-ghcr-pull"
 PRIVATE_ORGAN = "killinchu"
 ORGAN_RUNTIME_SPECS = {
-    "a11oy": {"digest": "sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526", "source": "a29f43251e63aa20469413bc006896be803a289d", "ref": "refs/heads/main", "run": "27237732091", "health": "/healthz"},
+    "a11oy": {"digest": "sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef", "source": "bab6cbec341f4206edf22d13e93af690f656650f", "ref": "refs/heads/main", "run": "44097341241", "health": "/healthz"},
     "sentra": {"digest": "sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639", "source": "84c24336f7ce00aeda454c213c08da38f53e4c45", "ref": "refs/heads/main", "run": "27040271560", "health": "/healthz"},
     "amaru": {"digest": "sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff", "source": "324c3d60c2e2195e89cfefb28613ff26d94e67f8", "ref": "refs/heads/main", "run": "27040273859", "health": "/healthz"},
     "killinchu": {"digest": "sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9", "source": "cc49a0cc5fa03405fc7894c64040e013911a63bc", "ref": "refs/heads/main", "run": "32365110327", "health": "/api/killinchu/healthz"},
@@ -319,6 +319,13 @@ def test_all_organs_are_digest_pinned_to_exact_runtime_and_certificate_contracts
         assert {item["name"]: item.get("value") for item in gate["env"]}["ORGAN_IMAGE"] == image
 
         application = pod["containers"][0]
+        if organ == "a11oy":
+            # This opt-in is isolated to the kind acceptance deployment.
+            # Source feature existence, not a substitute for traced runtime readback.
+            env = {item["name"]: item.get("value") for item in application["env"]}
+            assert env["A11OY_BUILD_ENV_FANOUT"] == "1"
+            assert env["OTEL_SERVICE_NAME"] == "a11oy"
+            assert env["OTEL_TRACES_EXPORTER"] == "otlp"
         expected_probe = {"path": spec["health"], "port": "http"}
         assert application["readinessProbe"]["httpGet"] == expected_probe
         assert application["livenessProbe"]["httpGet"] == expected_probe
