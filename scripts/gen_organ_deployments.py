@@ -16,7 +16,7 @@ NS = "szl"
 # no environment-variable tag override: governed generation must not be retagged.
 ORGAN_SPECS = {
     "a11oy": {
-        "image": "ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526",
+        "image": "ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef",
         "container_port": 7860,
         "private": False,
     },
