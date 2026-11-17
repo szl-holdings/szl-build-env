@@ -132,6 +132,38 @@ if sample:
             kind = "json"
         except (ValueError, UnicodeError, RecursionError):
             pass
+# Only permit the exact finite rejection codes emitted by A11oy's
+# protected-source fixed fan-out. Never write raw response strings or arbitrary
+# JSON keys from a potentially hostile origin into retained evidence.
+reason = None
+if (phase == "route" and status in (400, 429, 503, 504)
+        and exit_code == 0 and kind == "json" and 0 < size <= 2048):
+    allowed = {
+        "FANOUT_DISABLED", "TRACING_NOT_CONFIGURED", "TRACEPARENT_REQUIRED",
+        "TRACE_CONTEXT_UNAVAILABLE", "FANOUT_BUSY", "FANOUT_DEADLINE",
+        "FANOUT_UNAVAILABLE", "EXACT_FANOUT_REQUIRED", "PEER_STATUS_UNAVAILABLE",
+        "PEER_JSON_REQUIRED", "PEER_BODY_LIMIT", "PEER_TRACE_UNAVAILABLE",
+        "PEER_TIMEOUT", "PEER_UNAVAILABLE",
+    }
+    try:
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate response key")
+                result[key] = value
+            return result
+        payload = json.loads(sample.decode("utf-8"), object_pairs_hook=unique)
+        if (type(payload) is dict
+                and payload.get("schema") == "szl.build-env.fanout-ack/v1"
+                and payload.get("accepted") is False
+                and payload.get("execution_authorized") is False
+                and payload.get("receipt_minted") is False
+                and type(payload.get("reason")) is str
+                and payload["reason"] in allowed):
+            reason = payload["reason"]
+    except (ValueError, UnicodeError, RecursionError):
+        pass
 path = Path(destination)
 observations = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 observations[phase] = {
@@ -142,6 +174,7 @@ observations[phase] = {
     "state": state,
     "body_bytes_capped": min(size, 8 * 1024 * 1024),
     "body_format": kind,
+    "route_failure_reason": reason,
     "sample_truncated": size > 4096,
     "response_limit_exceeded": exit_code == 63,
 }
@@ -199,6 +232,75 @@ if collect == "1":
         except OSError:
             pass
         components[name] = summary
+    # The only newly failing workload is the exact A11oy runtime. Preserve
+    # bounded *enumerated* states and allowlisted error-type counts, never logs,
+    # environment, arguments, arbitrary exception messages or Kubernetes events.
+    app = {"collection": "unavailable"}
+    try:
+        pods = subprocess.run(
+            ["kubectl", "--request-timeout=5s", "-n", namespace,
+             "get", "pods", "-l", "app=a11oy", "-o", "json"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=7,
+            check=False)
+        if pods.returncode == 0 and len(pods.stdout) <= 131072:
+            document = json.loads(pods.stdout)
+            items = document.get("items", []) if type(document) is dict else []
+            if type(items) is list:
+                app = {"collection": "collected", "pod_count": min(len(items), 100),
+                       "containers": []}
+                allowed = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull",
+                           "OOMKilled", "Error", "Completed", "ContainerCreating",
+                           "CreateContainerConfigError", "ContainerCannotRun",
+                           "PodInitializing", "RunContainerError"}
+                for pod in items[:4]:
+                    status = pod.get("status", {}) if type(pod) is dict else {}
+                    for key in ("containerStatuses", "initContainerStatuses"):
+                        for container in status.get(key, [])[:4]:
+                            if container.get("name") not in ("a11oy", "cosign-gate"):
+                                continue
+                            state = container.get("state") or {}
+                            waiting = state.get("waiting") or {}
+                            terminated = state.get("terminated") or {}
+                            previous = (container.get("lastState") or {}).get("terminated") or {}
+                            def reason(value):
+                                value = value.get("reason")
+                                return value if value in allowed else "other" if value else None
+                            app["containers"].append({
+                                "role": container["name"],
+                                "ready": container.get("ready") is True,
+                                "restart_count": min(max(int(container.get("restartCount", 0)), 0), 9999),
+                                "waiting": reason(waiting),
+                                "terminated": reason(terminated),
+                                "last_terminated": reason(previous),
+                                "last_exit_code": previous.get("exitCode")
+                                    if type(previous.get("exitCode")) is int else None,
+                            })
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, AttributeError):
+        app = {"collection": "unavailable"}
+    try:
+        prior = subprocess.run(
+            ["kubectl", "--request-timeout=5s", "-n", namespace, "logs",
+             "deployment/a11oy", "-c", "a11oy", "--previous",
+             "--tail=80", "--limit-bytes=32768", "--since=10m"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=7,
+            check=False)
+        if prior.returncode == 0:
+            raw = prior.stdout[:32768]
+            # Fixed class labels and bounded counts only. Raw bytes are discarded.
+            exceptions = ("modulenotfounderror", "importerror", "attributeerror",
+                          "nameerror", "typeerror", "valueerror", "runtimeerror",
+                          "fileNotFoundError", "memoryerror", "permissionerror")
+            lower = raw.lower()
+            app["previous_log"] = {
+                "collection": "collected", "bytes_capped": len(raw),
+                "limit_reached": len(raw) == 32768,
+                "signals": {name.lower(): lower.count(name.lower().encode())
+                            for name in exceptions},
+                "traceback_count": lower.count(b"traceback"),
+            }
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    components["a11oy_runtime"] = app
 output = {"schema": "szl.build-env.diagnostics/v1", "http": http,
           "port_forward": port_forward, "components": components}
 encoded = json.dumps(output, indent=2, sort_keys=True) + "\n"

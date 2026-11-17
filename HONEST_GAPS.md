@@ -38,7 +38,7 @@
 
 | Organ | Immutable digest | Signed source | Publisher run | Source status |
 |---|---|---|---|---|
-| a11oy | `c285293c...d21526` | `a29f43251e63aa20469413bc006896be803a289d` | `27237732091` | historical; protected main has advanced |
+| a11oy | `c08839a0...04cef` | `bab6cbec341f4206edf22d13e93af690f656650f` | `44097341241` | source-bound signed build; runtime acceptance pending |
 | sentra | `60a0efc1...3639` | `84c24336f7ce00aeda454c213c08da38f53e4c45` | `27040271560` | historical; source repository unavailable |
 | amaru | `53301e26...89ff` | `324c3d60c2e2195e89cfefb28613ff26d94e67f8` | `27040273859` | historical; source repository unavailable |
 | killinchu | `1620a0f3...d2c9` | `cc49a0cc5fa03405fc7894c64040e013911a63bc` | `32365110327` | exact protected main at publication |
@@ -104,15 +104,61 @@ unavailable historical source repository current or reproducible.
   `GET /route?fanout=sentra,amaru,killinchu,rosie`, then requires one fresh Jaeger
   span graph connecting all five services to the exact injected root span. It never
   accepts an unconnected service-name bag or substitutes a health response.
-- Neither the digest-pinned A11oy runtime nor the currently published protected-main
-  A11oy runtime implements that root fan-out contract. Sentra documents only
-  in-process propagation. Amaru explicitly disables generic OpenTelemetry and
-  cannot emit the required OTLP span. Rosie's root health handler is not instrumented.
-- Therefore health readiness can be repaired and verified, but five-service trace
-  acceptance remains intentionally red. The unblock is protected-source organ
-  successors that implement traceparent-aware inbound middleware, real downstream
-  fan-out, OTLP export, and an exact machine-validated route acknowledgement,
-  followed by signed/attested immutable image publication and digest relock here.
+- The previous signed A11oy image `c285293c...d21526` was built from source
+  `a29f43251e63aa20469413bc006896be803a289d`, which did not contain `a11oy_build_env_fanout.py`.
+  The observed trace-seed response exceeding 65,536 bytes is consistent with
+  a SPA fallback, not an acknowledged fan-out; the response body was not retained.
+- This change selects image `sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef`
+  from protected source `bab6cbec341f4206edf22d13e93af690f656650f`, published,
+  keyless-signed and provenance-verified by workflow run `44097341241`.
+  That source registers the fixed fan-out route and the isolated kind manifest
+  explicitly enables `A11OY_BUILD_ENV_FANOUT=1`. Publisher identity is **not**
+  evidence that the new image was deployed, the route acknowledged, or Jaeger
+  observed five connected service spans.
+- Sentra has previously documented only in-process propagation; Amaru's
+  historical image disables generic OpenTelemetry; Rosie's historical root
+  health handler was not instrumented. Their current deployed trace behavior
+  remains unverified until the exact Jaeger acceptance artifact is inspected.
+- First [CI on this review branch](https://github.com/szl-holdings/szl-build-env/actions/runs/44109044471)
+  stopped at `make verify`: Cosign v2.4.1 returned `no signatures found` for
+  the newly published A11oy artifact. A11oy's publisher run uses Cosign v3.1.4,
+  whose OCI-referrer signature format requires the matching verifier; this
+  review upgrades the host binary with its official SHA-256 locked and the
+  isolated A11oy init gate to the exact immutable v3.1.4 image. The identity,
+  issuer, workflow commit, and push-trigger certificate predicates remain exact.
+  A successful signing log is NOT evidence of a successful verification.
+  The newer A11oy publisher also logs a self-attested SLSA predicate which
+  older slsa-verifier 2.6 may misclassify as absent. Therefore A11oy uniquely
+  requires a separate Cosign v3 `verify-attestation --type slsaprovenance`
+  check with the same exact source certificate binding, failing hard on
+  missing/invalid attestation. This is signed org-owned provenance, **not**
+  independent SLSA L2 or runtime admission evidence.
+- [Follow-up CI 44115434984](https://github.com/szl-holdings/szl-build-env/actions/runs/44115434984)
+  **passed all five** strict Cosign signature verifications. It then exposed
+  the next independent failure: the new A11oy application container entered
+  `CrashLoopBackOff`, and exact `/healthz` readiness timed out after 300s.
+  The sanitized acceptance artifact reports `deployment_readiness_timeout`;
+  it does not identify the application exception or establish a successful trace.
+  The subsequent diagnostic collector records only allowlisted container
+  states, restart/exit codes and exception-class counts from bounded previous
+  logs. It never exports pod log lines, credentials, response text or env vars.
+- [CI 44118532387](https://github.com/szl-holdings/szl-build-env/actions/runs/44118532387)
+  returned the bounded diagnostic needed for the owned repair: the A11oy
+  application container had **five restarts**, last termination
+  **`OOMKilled` / exit code 137**; its Cosign init container had completed,
+  and all four other deployments were ready. The signed A11oy runtime
+  bundles a **986,047,904-byte GGUF**, while the K8s limit was only 512Mi.
+  The isolated kind manifest and generated A11oy deployment now request
+  1Gi and cap at 3Gi, preserving 512Mi caps for other organs. This is a
+  source-bound memory-admission correction, **not** proof of runtime success.
+  Two `ModuleNotFoundError` string occurrences in truncated prior logs are
+  not treated as a verified fatal cause without a complete exception trace.
+- Therefore five-service trace acceptance remains **HOLD** until A11oy boots
+  and its signed container reaches readiness, CI proves a fresh exact
+  traceparent, the validated route acknowledgement, distinct connected spans
+  from all five services, and post-deployment readback.
+  Missing downstream trace capabilities require separately owned source and
+  signed-image repairs; neither skipped gates nor health-only checks count.
 
 ## Secrets — what is and is NOT in this repo
 

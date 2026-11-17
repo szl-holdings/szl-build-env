@@ -22,8 +22,55 @@ VALID_TRACEPARENT = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
 
 
+def test_failure_diagnostics_classify_a11oy_without_leaking_raw_pod_logs(tmp_path):
+    """Only enumerated container status and exception counts may leave the runner."""
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    source = SCRIPT.read_text(encoding="utf-8")
+    body = source.split("<<'COMPONENT_DIAGNOSTICS_PY'", 1)[1].split(
+        "COMPONENT_DIAGNOSTICS_PY", 1
+    )[0].lstrip()
+    compile(body, str(SCRIPT), "exec")
+    output = tmp_path / "diagnostics.json"
+    http = tmp_path / "http.json"
+    http.write_text("{}", encoding="utf-8")
+
+    def fake_run(arguments, **_kwargs):
+        if "get" in arguments and "pods" in arguments:
+            document = {"items": [{
+                "status": {"containerStatuses": [{
+                    "name": "a11oy",
+                    "ready": False, "restartCount": 3,
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {"reason": "Error", "exitCode": 1}},
+                }]}
+            }]}
+            return SimpleNamespace(returncode=0, stdout=json.dumps(document).encode())
+        if "--previous" in arguments:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"ModuleNotFoundError: No module named PRIVATE_SECRET_VALUE\\n"
+                       b"Authorization: Bearer sensitive_private_token\\n",
+            )
+        return SimpleNamespace(returncode=0, stdout=b"{}")
+
+    with patch("subprocess.run", side_effect=fake_run), patch.object(
+        sys, "argv", ["-", str(http), str(output), "szl", "1"]
+    ):
+        exec(compile(body, str(SCRIPT), "exec"), {"__name__": "__main__"})
+
+    recorded = output.read_text(encoding="utf-8")
+    assert "PRIVATE_SECRET_VALUE" not in recorded
+    assert "sensitive_private_token" not in recorded
+    result = json.loads(recorded)["components"]["a11oy_runtime"]
+    assert result["containers"][0]["waiting"] == "CrashLoopBackOff"
+    assert result["containers"][0]["last_exit_code"] == 1
+    assert result["previous_log"]["signals"]["modulenotfounderror"] == 1
+
+
 def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
-    # a11oy@a29f43251e63aa20469413bc006896be803a289d imports
+    # a11oy@bab6cbec341f4206edf22d13e93af690f656650f imports
     # opentelemetry.exporter.otlp.proto.grpc in vsp_otel/middleware.py.
     # Its endpoint must therefore select the collector's gRPC listener.
     manifest = (ROOT / "manifests/organs/a11oy.yaml").read_text(encoding="utf-8")
@@ -624,6 +671,63 @@ def test_http_diagnostics_classify_without_retaining_payload(tmp_path, exit_code
     assert len(encoded) < 1024
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"), [
+        (
+            {
+                "schema": "szl.build-env.fanout-ack/v1", "accepted": False,
+                "reason": "PEER_TRACE_UNAVAILABLE",
+                "execution_authorized": False, "receipt_minted": False,
+            },
+            "PEER_TRACE_UNAVAILABLE",
+        ),
+        (
+            {
+                "schema": "szl.build-env.fanout-ack/v1", "accepted": False,
+                "reason": "PRIVATE_TOKEN hidden payload",
+                "execution_authorized": False, "receipt_minted": False,
+            },
+            None,
+        ),
+        ({"reason": "PEER_TRACE_UNAVAILABLE"}, None),
+    ],
+)
+def test_route_failure_reason_is_allowlisted_without_payload_leak(
+    tmp_path, response, expected
+):
+    body = tmp_path / "route-body"
+    body.write_text(json.dumps(response), encoding="utf-8")
+    destination = tmp_path / "http.json"
+    result = subprocess.run(
+        [sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+         str(destination), "route", "0", "503", str(body)],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    record = json.loads(destination.read_text(encoding="utf-8"))["route"]
+    assert result.stdout.strip() == "http_error"
+    assert record["route_failure_reason"] == expected
+    assert "PRIVATE_TOKEN" not in destination.read_text(encoding="utf-8")
+
+
+def test_duplicate_or_malformed_route_reason_is_never_retained(tmp_path):
+    body = tmp_path / "route-body"
+    body.write_text(
+        '{"schema":"szl.build-env.fanout-ack/v1","accepted":false,'
+        '"execution_authorized":false,"receipt_minted":false,'
+        '"reason":"PEER_TIMEOUT","reason":"PRIVATE_TOKEN"}',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "http.json"
+    subprocess.run(
+        [sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+         str(destination), "route", "0", "503", str(body)],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    record = json.loads(destination.read_text(encoding="utf-8"))["route"]
+    assert record["route_failure_reason"] is None
+    assert "PRIVATE_TOKEN" not in destination.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("outcome", ["success", "error", "timeout"])
 def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monkeypatch, outcome):
     from types import SimpleNamespace
@@ -631,12 +735,22 @@ def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monke
 
     def fake_run(command, **kw):
         calls.append(command)
-        assert "--limit-bytes=32768" in command and "--tail=100" in command
         assert kw["timeout"] == 7 and kw["stderr"] == subprocess.DEVNULL
         if outcome == "timeout":
             raise subprocess.TimeoutExpired(command, 7, output=b"PRIVATE_TOKEN")
+        if "get" in command:
+            assert command[-4:] == ["-l", "app=a11oy", "-o", "json"]
+            pod = {"items": [{"status": {"containerStatuses": [{
+                "name": "a11oy", "ready": False, "restartCount": 2,
+                "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                "lastState": {"terminated": {"reason": "Error", "exitCode": 1}},
+            }]}}]}
+            return SimpleNamespace(returncode=0 if outcome == "success" else 1,
+                                   stdout=json.dumps(pod).encode())
+        assert "--limit-bytes=32768" in command
+        assert "--tail=100" in command or "--tail=80" in command
         return SimpleNamespace(returncode=0 if outcome == "success" else 1,
-                               stdout=b"error connection refused PRIVATE_TOKEN " * 2000)
+                               stdout=b"ModuleNotFoundError: PRIVATE_TOKEN connection refused " * 2000)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     output = tmp_path / "diagnostics.json"
@@ -644,17 +758,25 @@ def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monke
     monkeypatch.setattr(sys, "argv", ["diagnostics", str(tmp_path / "missing"), str(output), "szl", "1"])
     exec(compile(_diagnostic_python("COMPONENT_DIAGNOSTICS_PY"), "diagnostics", "exec"), {})
     encoded = output.read_text()
-    assert len(calls) == 2 and len(encoded) < 8192
+    assert len(calls) == 4 and len(encoded) < 8192
     assert "PRIVATE_TOKEN" not in encoded
-    forward = json.loads(encoded)["port_forward"]["jaeger"]
+    output_obj = json.loads(encoded)
+    forward = output_obj["port_forward"]["jaeger"]
     assert forward["bytes_capped"] == 4096 and forward["limit_reached"]
     assert forward["signals"]["connection_refused"] > 0
-    for item in json.loads(encoded)["components"].values():
+    for name in ("jaeger", "opentelemetry-collector"):
+        item = output_obj["components"][name]
         if outcome == "success":
             assert item["bytes_capped"] == 32768 and item["limit_reached"]
             assert item["signals"]["connection_refused"] > 0
         else:
             assert item == {"collection": "timeout" if outcome == "timeout" else "unavailable"}
+    app = output_obj["components"]["a11oy_runtime"]
+    if outcome == "success":
+        assert app["containers"][0]["waiting"] == "CrashLoopBackOff"
+        assert app["previous_log"]["signals"]["modulenotfounderror"] > 0
+    else:
+        assert app == {"collection": "unavailable"}
 
 
 @pytest.mark.parametrize(("scenario", "failure"), [

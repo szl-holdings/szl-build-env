@@ -70,9 +70,13 @@ jobs:
           # kubectl
           curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl"
           chmod +x /usr/local/bin/kubectl
-          # cosign
-          curl -sSLo /usr/local/bin/cosign "https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64"
-          chmod +x /usr/local/bin/cosign
+          # The A11oy publisher uses Cosign v3.1.4 (OCI 1.1 referrers).
+          # A v2 verifier cannot read that signature, and a green publisher
+          # is not permission to bypass this cryptographic gate.
+          curl -fsSLo /tmp/cosign-linux-amd64 "https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-linux-amd64"
+          echo '424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa  /tmp/cosign-linux-amd64' | sha256sum --check --status
+          sudo install -m 0755 /tmp/cosign-linux-amd64 /usr/local/bin/cosign
+          cosign version
           # slsa-verifier
           curl -sSLo /usr/local/bin/slsa-verifier "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.6.0/slsa-verifier-linux-amd64"
           chmod +x /usr/local/bin/slsa-verifier

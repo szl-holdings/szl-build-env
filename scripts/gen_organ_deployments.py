@@ -16,9 +16,12 @@ NS = "szl"
 # no environment-variable tag override: governed generation must not be retagged.
 ORGAN_SPECS = {
     "a11oy": {
-        "image": "ghcr.io/szl-holdings/a11oy@sha256:c285293c72b7a952743313d98a69d9eb0e641a60eeb48289e61c6e2f23d21526",
+        "image": "ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef",
         "container_port": 7860,
         "private": False,
+        # 986 MB signed-model image; kind acceptance proved 512Mi OOMKilled.
+        "memory_request": "1Gi",
+        "memory_limit": "3Gi",
     },
     "sentra": {
         "image": "ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639",
@@ -91,10 +94,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: {memory_request}
             limits:
               cpu: "1"
-              memory: 512Mi
+              memory: {memory_limit}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -125,6 +128,8 @@ def main() -> None:
                     image=image,
                     container_port=container_port,
                     runtime_auth=runtime_auth,
+                    memory_request=spec.get("memory_request", "128Mi"),
+                    memory_limit=spec.get("memory_limit", "512Mi"),
                 )
             )
         print("wrote", path)
