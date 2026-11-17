@@ -87,6 +87,26 @@ verify_one() {
     return 1
   fi
 
+  # A11oy's newer Cosign v3 publisher emits OCI-referrer attestations.
+  # slsa-verifier 2.6 can report those as absent; require the *actual*
+  # cryptographic attestation with the exact source identity instead.
+  # Its org-owned builder is NOT a third-party attested SLSA level.
+  if [[ "$organ" == "a11oy" ]]; then
+    if cosign verify-attestation --type slsaprovenance \
+         --certificate-identity "$identity" \
+         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+         --certificate-github-workflow-repository "szl-holdings/a11oy" \
+         --certificate-github-workflow-ref "$workflow_ref" \
+         --certificate-github-workflow-sha "$workflow_sha" \
+         --certificate-github-workflow-trigger "push" \
+         "$image" >/tmp/cosign.a11oy.attest.out 2>&1; then
+      green "   [OK]   exact signed provenance verified; org-owned builder (no SLSA L2 claim)"
+      return 0
+    fi
+    red "   [FAIL] exact A11oy signed provenance absent or invalid; no L1 downgrade"
+    return 1
+  fi
+
   # 2) slsa-verifier — L2 attested where present, L1 honest otherwise.
   #    Every governed input is already an immutable digest reference.
   if slsa-verifier verify-image "$image" \

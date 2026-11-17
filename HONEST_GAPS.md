@@ -127,6 +127,12 @@ unavailable historical source repository current or reproducible.
   isolated A11oy init gate to the exact immutable v3.1.4 image. The identity,
   issuer, workflow commit, and push-trigger certificate predicates remain exact.
   A successful signing log is NOT evidence of a successful verification.
+  The newer A11oy publisher also logs a self-attested SLSA predicate which
+  older slsa-verifier 2.6 may misclassify as absent. Therefore A11oy uniquely
+  requires a separate Cosign v3 `verify-attestation --type slsaprovenance`
+  check with the same exact source certificate binding, failing hard on
+  missing/invalid attestation. This is signed org-owned provenance, **not**
+  independent SLSA L2 or runtime admission evidence.
 - [Follow-up CI 44115434984](https://github.com/szl-holdings/szl-build-env/actions/runs/44115434984)
   **passed all five** strict Cosign signature verifications. It then exposed
   the next independent failure: the new A11oy application container entered
@@ -136,6 +142,17 @@ unavailable historical source repository current or reproducible.
   The subsequent diagnostic collector records only allowlisted container
   states, restart/exit codes and exception-class counts from bounded previous
   logs. It never exports pod log lines, credentials, response text or env vars.
+- [CI 44118532387](https://github.com/szl-holdings/szl-build-env/actions/runs/44118532387)
+  returned the bounded diagnostic needed for the owned repair: the A11oy
+  application container had **five restarts**, last termination
+  **`OOMKilled` / exit code 137**; its Cosign init container had completed,
+  and all four other deployments were ready. The signed A11oy runtime
+  bundles a **986,047,904-byte GGUF**, while the K8s limit was only 512Mi.
+  The isolated kind manifest and generated A11oy deployment now request
+  1Gi and cap at 3Gi, preserving 512Mi caps for other organs. This is a
+  source-bound memory-admission correction, **not** proof of runtime success.
+  Two `ModuleNotFoundError` string occurrences in truncated prior logs are
+  not treated as a verified fatal cause without a complete exception trace.
 - Therefore five-service trace acceptance remains **HOLD** until A11oy boots
   and its signed container reaches readiness, CI proves a fresh exact
   traceparent, the validated route acknowledgement, distinct connected spans

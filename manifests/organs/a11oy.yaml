@@ -79,9 +79,13 @@ spec:
             httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 15
             periodSeconds: 20
+          # Signed image bab6cbec embeds a verified 986,047,904-byte GGUF.
+          # CI 44118532387 observed exit=137 / OOMKilled under the 512Mi cap.
+          # Budget room for model residency plus Python server overhead; fail
+          # readiness independently rather than interpreting an OOM as pass.
           resources:
-            requests: { cpu: "50m", memory: "128Mi" }
-            limits:   { cpu: "500m", memory: "512Mi" }
+            requests: { cpu: "100m", memory: "1Gi" }
+            limits:   { cpu: "1", memory: "3Gi" }
 ---
 apiVersion: v1
 kind: Service

@@ -282,6 +282,12 @@ def test_a11oy_v3_signing_requires_matching_immutable_verifiers():
     assert "424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa" in workflow
     assert "sha256sum --check --status" in workflow
     assert "releases/download/v2.4.1/cosign-linux-amd64" not in workflow
+    host_verifier = (ROOT / "verify" / "cosign-init.sh").read_text()
+    assert 'if [[ "$organ" == "a11oy" ]]; then' in host_verifier
+    assert "cosign verify-attestation --type slsaprovenance" in host_verifier
+    assert '--certificate-github-workflow-sha "$workflow_sha"' in host_verifier
+    assert '--certificate-github-workflow-trigger "push"' in host_verifier
+    assert "exact A11oy signed provenance absent or invalid; no L1 downgrade" in host_verifier
 
     manifest = _deployment(ROOT / "manifests" / "organs" / "a11oy.yaml")
     pod = manifest["spec"]["template"]["spec"]
@@ -293,6 +299,68 @@ def test_a11oy_v3_signing_requires_matching_immutable_verifiers():
     assert gate["args"][0] == "verify"
     assert "--certificate-github-workflow-sha" in gate["args"]
     assert "--certificate-identity-regexp" not in gate["args"]
+
+
+def test_signed_a11oy_image_has_measured_memory_admission_headroom():
+    # Signed image bab6cbec bundles a 986,047,904-byte GGUF.
+    # CI 44118532387 observed OOMKilled (exit 137) at 512Mi.
+    model_bytes = 986_047_904
+    allocated_bytes = 3 * 1024**3
+    assert allocated_bytes > 3 * model_bytes
+    for path in (
+        ROOT / "manifests" / "organs" / "a11oy.yaml",
+        ROOT / "deploy" / "organs" / "a11oy-deployment.yaml",
+    ):
+        app = _deployment(path)["spec"]["template"]["spec"]["containers"][0]
+        assert app["resources"]["requests"]["memory"] == "1Gi"
+        assert app["resources"]["limits"]["memory"] == "3Gi"
+    for other in ("sentra", "amaru", "killinchu", "rosie"):
+        app = _deployment(ROOT / "deploy" / "organs" / f"{other}-deployment.yaml")[
+            "spec"
+        ]["template"]["spec"]["containers"][0]
+        assert app["resources"]["limits"]["memory"] == "512Mi"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix executable and native Bash required")
+@pytest.mark.parametrize("attestation_accepted", [False, True])
+def test_a11oy_signed_provenance_is_a_hard_gate_not_l1_downgrade(
+    tmp_path, attestation_accepted
+):
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    cosign = binary / "cosign"
+    cosign.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "verify-attestation" ]; then\n'
+        "  exit " + ("0" if attestation_accepted else "7") + "\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    cosign.chmod(0o755)
+    slsa = binary / "slsa-verifier"
+    slsa.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    slsa.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{binary}{os.pathsep}{environment['PATH']}"
+    environment["COSIGN_PUB"] = str(ROOT / "keys" / "cosign.pub")
+    outcome = subprocess.run(
+        ["bash", "verify/cosign-init.sh", "--all"],
+        cwd=ROOT,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=15,
+        check=False,
+    )
+    if attestation_accepted:
+        assert outcome.returncode == 0, outcome.stdout.decode(errors="replace")
+        assert b"exact signed provenance verified" in outcome.stdout
+    else:
+        assert outcome.returncode != 0
+        assert b"exact A11oy signed provenance absent or invalid" in outcome.stdout
+        assert b"a11oy      FAIL" in outcome.stdout
+        assert b"sentra     PASS" in outcome.stdout
 
 
 def test_all_organs_are_digest_pinned_to_exact_runtime_and_certificate_contracts():
