@@ -23,7 +23,7 @@ VALID_FANOUT = ["sentra", "amaru", "killinchu", "rosie"]
 
 
 def test_pinned_a11oy_exporter_reaches_collector_grpc_receiver():
-    # a11oy@a29f43251e63aa20469413bc006896be803a289d imports
+    # a11oy@bab6cbec341f4206edf22d13e93af690f656650f imports
     # opentelemetry.exporter.otlp.proto.grpc in vsp_otel/middleware.py.
     # Its endpoint must therefore select the collector's gRPC listener.
     manifest = (ROOT / "manifests/organs/a11oy.yaml").read_text(encoding="utf-8")
