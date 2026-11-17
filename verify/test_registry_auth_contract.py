@@ -274,6 +274,27 @@ def test_registry_auth_is_not_attached_to_public_organ_pods():
                 assert SECRET_NAME not in json.dumps(pod)
 
 
+def test_a11oy_v3_signing_requires_matching_immutable_verifiers():
+    # The current A11oy publisher uses Cosign v3 OCI 1.1 referrers.
+    # Neither a v2-only verifier nor an unsigned image is admissible.
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "releases/download/v3.1.4/cosign-linux-amd64" in workflow
+    assert "424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa" in workflow
+    assert "sha256sum --check --status" in workflow
+    assert "releases/download/v2.4.1/cosign-linux-amd64" not in workflow
+
+    manifest = _deployment(ROOT / "manifests" / "organs" / "a11oy.yaml")
+    pod = manifest["spec"]["template"]["spec"]
+    gate = next(item for item in pod["initContainers"] if item["name"] == "cosign-gate")
+    assert gate["image"] == (
+        "ghcr.io/sigstore/cosign/cosign@sha256:"
+        "0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d"
+    )
+    assert gate["args"][0] == "verify"
+    assert "--certificate-github-workflow-sha" in gate["args"]
+    assert "--certificate-identity-regexp" not in gate["args"]
+
+
 def test_all_organs_are_digest_pinned_to_exact_runtime_and_certificate_contracts():
     verifier = (ROOT / "verify" / "cosign-init.sh").read_text()
     generator = (ROOT / "scripts" / "gen_organ_deployments.py").read_text()

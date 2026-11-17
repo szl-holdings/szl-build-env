@@ -30,7 +30,9 @@ spec:
             name: szl-cosign-pub
       initContainers:
         - name: cosign-gate
-          image: ghcr.io/sigstore/cosign/cosign:v2.4.1
+          # Match the GHCR publisher's Cosign v3 OCI-referrer format.
+          # Exact immutable index digest; the signed organ is still separately pinned.
+          image: ghcr.io/sigstore/cosign/cosign@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d
           # Keyless (Fulcio) verify. The cosign distroless image has no shell, so we
           # run its `cosign` entrypoint directly via args (no /bin/sh). The pod fails
           # to start unless the signature verifies against the organ's ghcr-build-push

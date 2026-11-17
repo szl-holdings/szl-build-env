@@ -119,9 +119,18 @@ unavailable historical source repository current or reproducible.
   historical image disables generic OpenTelemetry; Rosie's historical root
   health handler was not instrumented. Their current deployed trace behavior
   remains unverified until the exact Jaeger acceptance artifact is inspected.
-- Therefore five-service trace acceptance remains **HOLD** until CI proves a
-  fresh exact traceparent, the validated route acknowledgement, distinct
-  connected spans from all five services, and post-deployment readback.
+- First [CI on this review branch](https://github.com/szl-holdings/szl-build-env/actions/runs/44109044471)
+  stopped at `make verify`: Cosign v2.4.1 returned `no signatures found` for
+  the newly published A11oy artifact. A11oy's publisher run uses Cosign v3.1.4,
+  whose OCI-referrer signature format requires the matching verifier; this
+  review upgrades the host binary with its official SHA-256 locked and the
+  isolated A11oy init gate to the exact immutable v3.1.4 image. The identity,
+  issuer, workflow commit, and push-trigger certificate predicates remain exact.
+  A successful signing log is NOT evidence of a successful verification.
+- Therefore five-service trace acceptance remains **HOLD** until the new
+  signature passes the on-run cryptographic gate, CI proves a fresh exact
+  traceparent, the validated route acknowledgement, distinct connected spans
+  from all five services, and post-deployment readback.
   Missing downstream trace capabilities require separately owned source and
   signed-image repairs; neither skipped gates nor health-only checks count.
 
