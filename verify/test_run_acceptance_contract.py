@@ -678,12 +678,22 @@ def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monke
 
     def fake_run(command, **kw):
         calls.append(command)
-        assert "--limit-bytes=32768" in command and "--tail=100" in command
         assert kw["timeout"] == 7 and kw["stderr"] == subprocess.DEVNULL
         if outcome == "timeout":
             raise subprocess.TimeoutExpired(command, 7, output=b"PRIVATE_TOKEN")
+        if "get" in command:
+            assert command[-4:] == ["-l", "app=a11oy", "-o", "json"]
+            pod = {"items": [{"status": {"containerStatuses": [{
+                "name": "a11oy", "ready": False, "restartCount": 2,
+                "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                "lastState": {"terminated": {"reason": "Error", "exitCode": 1}},
+            }]}}]}
+            return SimpleNamespace(returncode=0 if outcome == "success" else 1,
+                                   stdout=json.dumps(pod).encode())
+        assert "--limit-bytes=32768" in command
+        assert "--tail=100" in command or "--tail=80" in command
         return SimpleNamespace(returncode=0 if outcome == "success" else 1,
-                               stdout=b"error connection refused PRIVATE_TOKEN " * 2000)
+                               stdout=b"ModuleNotFoundError: PRIVATE_TOKEN connection refused " * 2000)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     output = tmp_path / "diagnostics.json"
@@ -691,17 +701,25 @@ def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monke
     monkeypatch.setattr(sys, "argv", ["diagnostics", str(tmp_path / "missing"), str(output), "szl", "1"])
     exec(compile(_diagnostic_python("COMPONENT_DIAGNOSTICS_PY"), "diagnostics", "exec"), {})
     encoded = output.read_text()
-    assert len(calls) == 2 and len(encoded) < 8192
+    assert len(calls) == 4 and len(encoded) < 8192
     assert "PRIVATE_TOKEN" not in encoded
-    forward = json.loads(encoded)["port_forward"]["jaeger"]
+    output_obj = json.loads(encoded)
+    forward = output_obj["port_forward"]["jaeger"]
     assert forward["bytes_capped"] == 4096 and forward["limit_reached"]
     assert forward["signals"]["connection_refused"] > 0
-    for item in json.loads(encoded)["components"].values():
+    for name in ("jaeger", "opentelemetry-collector"):
+        item = output_obj["components"][name]
         if outcome == "success":
             assert item["bytes_capped"] == 32768 and item["limit_reached"]
             assert item["signals"]["connection_refused"] > 0
         else:
             assert item == {"collection": "timeout" if outcome == "timeout" else "unavailable"}
+    app = output_obj["components"]["a11oy_runtime"]
+    if outcome == "success":
+        assert app["containers"][0]["waiting"] == "CrashLoopBackOff"
+        assert app["previous_log"]["signals"]["modulenotfounderror"] > 0
+    else:
+        assert app == {"collection": "unavailable"}
 
 
 @pytest.mark.parametrize(("scenario", "failure"), [
