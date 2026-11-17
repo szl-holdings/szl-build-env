@@ -132,6 +132,38 @@ if sample:
             kind = "json"
         except (ValueError, UnicodeError, RecursionError):
             pass
+# Only permit the exact finite rejection codes emitted by A11oy's
+# protected-source fixed fan-out. Never write raw response strings or arbitrary
+# JSON keys from a potentially hostile origin into retained evidence.
+reason = None
+if (phase == "route" and status in (400, 429, 503, 504)
+        and exit_code == 0 and kind == "json" and 0 < size <= 2048):
+    allowed = {
+        "FANOUT_DISABLED", "TRACING_NOT_CONFIGURED", "TRACEPARENT_REQUIRED",
+        "TRACE_CONTEXT_UNAVAILABLE", "FANOUT_BUSY", "FANOUT_DEADLINE",
+        "FANOUT_UNAVAILABLE", "EXACT_FANOUT_REQUIRED", "PEER_STATUS_UNAVAILABLE",
+        "PEER_JSON_REQUIRED", "PEER_BODY_LIMIT", "PEER_TRACE_UNAVAILABLE",
+        "PEER_TIMEOUT", "PEER_UNAVAILABLE",
+    }
+    try:
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate response key")
+                result[key] = value
+            return result
+        payload = json.loads(sample.decode("utf-8"), object_pairs_hook=unique)
+        if (type(payload) is dict
+                and payload.get("schema") == "szl.build-env.fanout-ack/v1"
+                and payload.get("accepted") is False
+                and payload.get("execution_authorized") is False
+                and payload.get("receipt_minted") is False
+                and type(payload.get("reason")) is str
+                and payload["reason"] in allowed):
+            reason = payload["reason"]
+    except (ValueError, UnicodeError, RecursionError):
+        pass
 path = Path(destination)
 observations = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 observations[phase] = {
@@ -142,6 +174,7 @@ observations[phase] = {
     "state": state,
     "body_bytes_capped": min(size, 8 * 1024 * 1024),
     "body_format": kind,
+    "route_failure_reason": reason,
     "sample_truncated": size > 4096,
     "response_limit_exceeded": exit_code == 63,
 }

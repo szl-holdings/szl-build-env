@@ -671,6 +671,63 @@ def test_http_diagnostics_classify_without_retaining_payload(tmp_path, exit_code
     assert len(encoded) < 1024
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"), [
+        (
+            {
+                "schema": "szl.build-env.fanout-ack/v1", "accepted": False,
+                "reason": "PEER_TRACE_UNAVAILABLE",
+                "execution_authorized": False, "receipt_minted": False,
+            },
+            "PEER_TRACE_UNAVAILABLE",
+        ),
+        (
+            {
+                "schema": "szl.build-env.fanout-ack/v1", "accepted": False,
+                "reason": "PRIVATE_TOKEN hidden payload",
+                "execution_authorized": False, "receipt_minted": False,
+            },
+            None,
+        ),
+        ({"reason": "PEER_TRACE_UNAVAILABLE"}, None),
+    ],
+)
+def test_route_failure_reason_is_allowlisted_without_payload_leak(
+    tmp_path, response, expected
+):
+    body = tmp_path / "route-body"
+    body.write_text(json.dumps(response), encoding="utf-8")
+    destination = tmp_path / "http.json"
+    result = subprocess.run(
+        [sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+         str(destination), "route", "0", "503", str(body)],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    record = json.loads(destination.read_text(encoding="utf-8"))["route"]
+    assert result.stdout.strip() == "http_error"
+    assert record["route_failure_reason"] == expected
+    assert "PRIVATE_TOKEN" not in destination.read_text(encoding="utf-8")
+
+
+def test_duplicate_or_malformed_route_reason_is_never_retained(tmp_path):
+    body = tmp_path / "route-body"
+    body.write_text(
+        '{"schema":"szl.build-env.fanout-ack/v1","accepted":false,'
+        '"execution_authorized":false,"receipt_minted":false,'
+        '"reason":"PEER_TIMEOUT","reason":"PRIVATE_TOKEN"}',
+        encoding="utf-8",
+    )
+    destination = tmp_path / "http.json"
+    subprocess.run(
+        [sys.executable, "-c", _diagnostic_python("HTTP_DIAGNOSTICS_PY"),
+         str(destination), "route", "0", "503", str(body)],
+        capture_output=True, text=True, check=True, timeout=5,
+    )
+    record = json.loads(destination.read_text(encoding="utf-8"))["route"]
+    assert record["route_failure_reason"] is None
+    assert "PRIVATE_TOKEN" not in destination.read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("outcome", ["success", "error", "timeout"])
 def test_component_log_summary_is_bounded_and_excludes_raw_lines(tmp_path, monkeypatch, outcome):
     from types import SimpleNamespace
