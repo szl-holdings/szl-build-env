@@ -34,7 +34,7 @@ ORGAN_SPECS = {
         "private": False,
     },
     "killinchu": {
-        "image": "ghcr.io/szl-holdings/killinchu@sha256:1620a0f38054121f1c11705889bc17ed376412934387f07358f354e5d1a0d2c9",
+        "image": "ghcr.io/szl-holdings/killinchu@sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045",
         "container_port": 7860,
         "private": True,
     },
