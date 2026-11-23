@@ -1,6 +1,6 @@
 # Organ Deployment: amaru
-# Source: signed historical source; source repository is currently unavailable 324c3d60c2e2195e89cfefb28613ff26d94e67f8
-# Image: ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff
+# Source: signed source; szl-holdings/amaru protected main at 6e9c2fee26f5e8f5bd629dfda9e13cdb63a9688d
+# Image: ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 apiVersion: apps/v1
 kind: Deployment
@@ -46,18 +46,18 @@ spec:
             - "--certificate-github-workflow-ref"
             - "refs/heads/main"
             - "--certificate-github-workflow-sha"
-            - "324c3d60c2e2195e89cfefb28613ff26d94e67f8"
+            - "6e9c2fee26f5e8f5bd629dfda9e13cdb63a9688d"
             - "--certificate-github-workflow-trigger"
             - "push"
-            - "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff"
+            - "ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512"
           env:
             - { name: ORGAN_NAME,  value: "amaru" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
       containers:
         - name: amaru
-          image: ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff
+          image: ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512
           imagePullPolicy: IfNotPresent
           ports:
             - { containerPort: 7860, name: http }
