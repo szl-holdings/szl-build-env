@@ -39,10 +39,10 @@
 | Organ | Immutable digest | Signed source | Publisher run | Source status |
 |---|---|---|---|---|
 | a11oy | `c08839a0...04cef` | `bab6cbec341f4206edf22d13e93af690f656650f` | `44097341241` | source-bound signed build; runtime acceptance pending |
-| sentra | `60a0efc1...3639` | `84c24336f7ce00aeda454c213c08da38f53e4c45` | `27040271560` | historical; source repository unavailable |
-| amaru | `53301e26...89ff` | `324c3d60c2e2195e89cfefb28613ff26d94e67f8` | `27040273859` | historical; source repository unavailable |
+| sentra | `62da54f9...d08d` | `b9e609f7b897d0f2d689453b7bb870ebcd4e79d1` | `45086503720` | exact protected main at publication |
+| amaru | `c9f39694...2512` | `6e9c2fee26f5e8f5bd629dfda9e13cdb63a9688d` | `45086464581` | exact protected main at publication |
 | killinchu | `1620a0f3...d2c9` | `cc49a0cc5fa03405fc7894c64040e013911a63bc` | `32365110327` | exact protected main at publication |
-| rosie | `1984a15f...2848` | `97be4e52695e8141036b1c4269a4722148852d4a` | `27043537785` | historical tag; source repository unavailable |
+| rosie | `dfa93e2d...d1ab` | `6b64ef3bdc4f89831654837515bf760b8c8a8ad5` | `45086473772` | exact protected main at publication |
 
 A signature proves publisher identity and subject digest. It does not make an
 unavailable historical source repository current or reproducible.

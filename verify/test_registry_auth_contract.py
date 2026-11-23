@@ -20,10 +20,10 @@ SECRET_NAME = "szl-ghcr-pull"
 PRIVATE_ORGAN = "killinchu"
 ORGAN_RUNTIME_SPECS = {
     "a11oy": {"digest": "sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef", "source": "bab6cbec341f4206edf22d13e93af690f656650f", "ref": "refs/heads/main", "run": "44097341241", "health": "/healthz"},
-    "sentra": {"digest": "sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639", "source": "84c24336f7ce00aeda454c213c08da38f53e4c45", "ref": "refs/heads/main", "run": "27040271560", "health": "/healthz"},
-    "amaru": {"digest": "sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff", "source": "324c3d60c2e2195e89cfefb28613ff26d94e67f8", "ref": "refs/heads/main", "run": "27040273859", "health": "/healthz"},
+    "sentra": {"digest": "sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d", "source": "b9e609f7b897d0f2d689453b7bb870ebcd4e79d1", "ref": "refs/heads/main", "run": "45086503720", "health": "/healthz"},
+    "amaru": {"digest": "sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512", "source": "6e9c2fee26f5e8f5bd629dfda9e13cdb63a9688d", "ref": "refs/heads/main", "run": "45086464581", "health": "/healthz"},
     "killinchu": {"digest": "sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045", "source": "e5ca7b75adbfe54891fcff26c8abbdc61dc1fc48", "ref": "refs/heads/main", "run": "44182142894", "health": "/api/killinchu/healthz"},
-    "rosie": {"digest": "sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848", "source": "97be4e52695e8141036b1c4269a4722148852d4a", "ref": "refs/tags/uds-v0.3.1", "run": "27043537785", "health": "/healthz"},
+    "rosie": {"digest": "sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab", "source": "6b64ef3bdc4f89831654837515bf760b8c8a8ad5", "ref": "refs/heads/main", "run": "45086473772", "health": "/healthz"},
 }
 ORGANS = tuple(ORGAN_RUNTIME_SPECS)
 KILLINCHU_SOURCE_SHA = ORGAN_RUNTIME_SPECS[PRIVATE_ORGAN]["source"]

@@ -26,7 +26,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: amaru
-          image: ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff
+          image: ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
