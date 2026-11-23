@@ -26,7 +26,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: rosie
-          image: ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848
+          image: ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

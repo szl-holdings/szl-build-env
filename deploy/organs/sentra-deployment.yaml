@@ -26,7 +26,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: sentra
-          image: ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639
+          image: ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

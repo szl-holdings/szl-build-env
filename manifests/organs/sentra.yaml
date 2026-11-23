@@ -1,6 +1,6 @@
 # Organ Deployment: sentra
-# Source: signed historical source; source repository is currently unavailable 84c24336f7ce00aeda454c213c08da38f53e4c45
-# Image: ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639
+# Source: signed source; szl-holdings/sentra protected main at b9e609f7b897d0f2d689453b7bb870ebcd4e79d1
+# Image: ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 apiVersion: apps/v1
 kind: Deployment
@@ -46,18 +46,18 @@ spec:
             - "--certificate-github-workflow-ref"
             - "refs/heads/main"
             - "--certificate-github-workflow-sha"
-            - "84c24336f7ce00aeda454c213c08da38f53e4c45"
+            - "b9e609f7b897d0f2d689453b7bb870ebcd4e79d1"
             - "--certificate-github-workflow-trigger"
             - "push"
-            - "ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639"
+            - "ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d"
           env:
             - { name: ORGAN_NAME,  value: "sentra" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
       containers:
         - name: sentra
-          image: ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639
+          image: ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d
           imagePullPolicy: IfNotPresent
           ports:
             - { containerPort: 7860, name: http }

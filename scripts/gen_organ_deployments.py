@@ -24,12 +24,12 @@ ORGAN_SPECS = {
         "memory_limit": "3Gi",
     },
     "sentra": {
-        "image": "ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639",
+        "image": "ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d",
         "container_port": 7860,
         "private": False,
     },
     "amaru": {
-        "image": "ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff",
+        "image": "ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512",
         "container_port": 7860,
         "private": False,
     },
@@ -39,7 +39,7 @@ ORGAN_SPECS = {
         "private": True,
     },
     "rosie": {
-        "image": "ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848",
+        "image": "ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab",
         "container_port": 7860,
         "private": False,
     },

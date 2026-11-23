@@ -27,10 +27,10 @@ yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 image_for() {
   case "$1" in
     a11oy) printf '%s\n' 'ghcr.io/szl-holdings/a11oy@sha256:c08839a06002b88c7c5c11dc8140099f8dd56ba0a618c1b5457bdedf17404cef' ;;
-    sentra) printf '%s\n' 'ghcr.io/szl-holdings/sentra@sha256:60a0efc14366ba392bfe3f3cd4196863fe148bb87a17428be6a57f0a05ac3639' ;;
-    amaru) printf '%s\n' 'ghcr.io/szl-holdings/amaru@sha256:53301e26adcde49e73df28d8c3b790f2496da9d495307fe8587ffa7452b289ff' ;;
+    sentra) printf '%s\n' 'ghcr.io/szl-holdings/sentra@sha256:62da54f92b39dd30537df87af08d4dda2c2bc14508fe53bd31ca7080dd62d08d' ;;
+    amaru) printf '%s\n' 'ghcr.io/szl-holdings/amaru@sha256:c9f39694f9e8120bc5ba19c20db88d3a271eafa87eeb3bd03bca352a5ae82512' ;;
     killinchu) printf '%s\n' 'ghcr.io/szl-holdings/killinchu@sha256:d7702fa2e9d1f844ccb6c4e62c27e516b2651724dfe8997e2c83c3a3609c9045' ;;
-    rosie) printf '%s\n' 'ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848' ;;
+    rosie) printf '%s\n' 'ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab' ;;
     *) return 1 ;;
   esac
 }
@@ -38,18 +38,17 @@ image_for() {
 workflow_sha_for() {
   case "$1" in
     a11oy) printf '%s\n' 'bab6cbec341f4206edf22d13e93af690f656650f' ;;
-    sentra) printf '%s\n' '84c24336f7ce00aeda454c213c08da38f53e4c45' ;;
-    amaru) printf '%s\n' '324c3d60c2e2195e89cfefb28613ff26d94e67f8' ;;
+    sentra) printf '%s\n' 'b9e609f7b897d0f2d689453b7bb870ebcd4e79d1' ;;
+    amaru) printf '%s\n' '6e9c2fee26f5e8f5bd629dfda9e13cdb63a9688d' ;;
     killinchu) printf '%s\n' 'e5ca7b75adbfe54891fcff26c8abbdc61dc1fc48' ;;
-    rosie) printf '%s\n' '97be4e52695e8141036b1c4269a4722148852d4a' ;;
+    rosie) printf '%s\n' '6b64ef3bdc4f89831654837515bf760b8c8a8ad5' ;;
     *) return 1 ;;
   esac
 }
 
 workflow_ref_for() {
   case "$1" in
-    rosie) printf '%s\n' 'refs/tags/uds-v0.3.1' ;;
-    a11oy|sentra|amaru|killinchu) printf '%s\n' 'refs/heads/main' ;;
+    a11oy|sentra|amaru|killinchu|rosie) printf '%s\n' 'refs/heads/main' ;;
     *) return 1 ;;
   esac
 }

@@ -1,6 +1,6 @@
 # Organ Deployment: rosie
-# Source: signed historical tag; source repository is currently unavailable 97be4e52695e8141036b1c4269a4722148852d4a
-# Image: ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848
+# Source: signed source; szl-holdings/rosie protected main at 6b64ef3bdc4f89831654837515bf760b8c8a8ad5
+# Image: ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab
 # Supply-chain gate: initContainer runs cosign verify + slsa-verifier. FAIL-CLOSED.
 apiVersion: apps/v1
 kind: Deployment
@@ -38,26 +38,26 @@ spec:
           args:
             - "verify"
             - "--certificate-identity"
-            - "https://github.com/szl-holdings/rosie/.github/workflows/ghcr-build-push.yml@refs/tags/uds-v0.3.1"
+            - "https://github.com/szl-holdings/rosie/.github/workflows/ghcr-build-push.yml@refs/heads/main"
             - "--certificate-oidc-issuer"
             - "https://token.actions.githubusercontent.com"
             - "--certificate-github-workflow-repository"
             - "szl-holdings/rosie"
             - "--certificate-github-workflow-ref"
-            - "refs/tags/uds-v0.3.1"
+            - "refs/heads/main"
             - "--certificate-github-workflow-sha"
-            - "97be4e52695e8141036b1c4269a4722148852d4a"
+            - "6b64ef3bdc4f89831654837515bf760b8c8a8ad5"
             - "--certificate-github-workflow-trigger"
             - "push"
-            - "ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848"
+            - "ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab"
           env:
             - { name: ORGAN_NAME,  value: "rosie" }
-            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848" }
+            - { name: ORGAN_IMAGE, value: "ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab" }
           volumeMounts:
             - { name: cosign-pub, mountPath: /keys, readOnly: true }
       containers:
         - name: rosie
-          image: ghcr.io/szl-holdings/rosie@sha256:1984a15f53c2e1b91c7dafaa0ed5df9148d57e3e86eb73db879c2b0443302848
+          image: ghcr.io/szl-holdings/rosie@sha256:dfa93e2d7f2e2de9437b07d9ec56ee1794ffcff752cf6dc634abd2707cb3d1ab
           imagePullPolicy: IfNotPresent
           ports:
             - { containerPort: 7860, name: http }
